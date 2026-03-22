@@ -115,7 +115,11 @@ export default function StrategicBets() {
           withBetsMonthly={withBetsModel.monthly}
           targetMonthly={targetModel.monthly}
           targetARR={plan.targetARR}
+          startingARR={plan.startingARR}
           bets={plan.strategicBets}
+          sqTargets={effectiveHistorical}
+          betsTargets={effectiveHistorical}
+          planTargets={effectiveTargets}
         />
       )}
     </div>
