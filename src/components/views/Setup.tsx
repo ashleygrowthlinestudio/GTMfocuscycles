@@ -682,6 +682,33 @@ const INSIGHT_METRIC_OPTIONS: { value: MarketInsight['metric']; label: string }[
   { value: 'acv', label: 'ACV' },
 ];
 
+const IMPACT_DESCRIPTORS = [
+  { label: 'Strong Growth', emoji: '\u{1F680}', pct: 40 },
+  { label: 'Moderate Growth', emoji: '\u{1F4C8}', pct: 20 },
+  { label: 'Slight Growth', emoji: '\u{1F4CA}', pct: 10 },
+  { label: 'Flat', emoji: '\u27A1\uFE0F', pct: 0 },
+  { label: 'Slight Decline', emoji: '\u{1F4C9}', pct: -15 },
+  { label: 'Significant Decline', emoji: '\u2B07\uFE0F', pct: -35 },
+  { label: 'Near Zero', emoji: '\u{1F53B}', pct: -65 },
+] as const;
+
+const OFFSET_DESCRIPTORS = [
+  { label: 'Slight Growth', emoji: '\u{1F4CA}', pct: 10 },
+  { label: 'Moderate Growth', emoji: '\u{1F4C8}', pct: 20 },
+  { label: 'Strong Growth', emoji: '\u{1F680}', pct: 40 },
+  { label: 'Fully Compensates', emoji: '\u2705', pct: null as number | null }, // computed at save
+] as const;
+
+function descriptorForPct(pct: number): string {
+  let bestLabel = 'Flat';
+  let bestDist = Infinity;
+  for (const d of IMPACT_DESCRIPTORS) {
+    const dist = Math.abs(d.pct - pct);
+    if (dist < bestDist) { bestDist = dist; bestLabel = d.label; }
+  }
+  return bestLabel;
+}
+
 function MarketInsightsSection() {
   const { plan, dispatch } = useGTMPlan();
   const insights = plan.marketInsights ?? [];
@@ -696,7 +723,13 @@ function MarketInsightsSection() {
   const [impactType, setImpactType] = useState<'oneTime' | 'gradual'>('oneTime');
   const [impactMonth, setImpactMonth] = useState<number>(1);
   const [impactDurationMonths, setImpactDurationMonths] = useState(3);
+  const [selectedDescriptor, setSelectedDescriptor] = useState<string>('Flat');
   const [impactPct, setImpactPct] = useState(0);
+
+  // Offset state
+  const [showOffset, setShowOffset] = useState(false);
+  const [offsetChannel, setOffsetChannel] = useState<MarketInsight['channel']>('inbound');
+  const [offsetDescriptor, setOffsetDescriptor] = useState<string>('Moderate Growth');
 
   function resetForm() {
     setLabel('');
@@ -706,16 +739,26 @@ function MarketInsightsSection() {
     setImpactType('oneTime');
     setImpactMonth(1);
     setImpactDurationMonths(3);
+    setSelectedDescriptor('Flat');
     setImpactPct(0);
+    setShowOffset(false);
+    setOffsetChannel('inbound');
+    setOffsetDescriptor('Moderate Growth');
     setEditingId(null);
     setShowForm(false);
+  }
+
+  function selectDescriptor(d: typeof IMPACT_DESCRIPTORS[number]) {
+    setSelectedDescriptor(d.label);
+    setImpactPct(d.pct);
   }
 
   function handleSave() {
     if (!label.trim()) return;
 
+    const insightId = editingId ?? crypto.randomUUID();
     const insight: MarketInsight = {
-      id: editingId ?? crypto.randomUUID(),
+      id: insightId,
       label: label.trim(),
       description: description.trim(),
       channel,
@@ -723,18 +766,51 @@ function MarketInsightsSection() {
       impactType,
       impactMonth: impactMonth as Month,
       impactDurationMonths: impactType === 'oneTime' ? 1 : impactDurationMonths,
-      impactPct: impactPct / 100, // convert from % display to decimal
+      impactPct: impactPct / 100,
+      impactDescriptor: selectedDescriptor,
       enabled: true,
     };
 
     if (editingId) {
-      // Preserve enabled state from existing insight
       const existing = insights.find((i) => i.id === editingId);
       if (existing) insight.enabled = existing.enabled;
+
+      // Remove old offset if it existed
+      if (existing?.offsetInsightId) {
+        dispatch({ type: 'REMOVE_INSIGHT', payload: existing.offsetInsightId });
+      }
       dispatch({ type: 'UPDATE_INSIGHT', payload: insight });
     } else {
       dispatch({ type: 'ADD_INSIGHT', payload: insight });
     }
+
+    // Create offset insight if enabled
+    if (showOffset && offsetChannel !== channel) {
+      const offsetDef = OFFSET_DESCRIPTORS.find((d) => d.label === offsetDescriptor);
+      const offsetPctVal = offsetDef?.pct !== null && offsetDef?.pct !== undefined
+        ? offsetDef.pct
+        : Math.abs(impactPct); // Fully Compensates = inverse
+      const offsetId = crypto.randomUUID();
+      const offsetInsight: MarketInsight = {
+        id: offsetId,
+        label: `${label.trim()} (offset)`,
+        description: `Offset: ${INSIGHT_CHANNEL_OPTIONS.find((o) => o.value === offsetChannel)?.label} compensates for ${INSIGHT_CHANNEL_OPTIONS.find((o) => o.value === channel)?.label}`,
+        channel: offsetChannel,
+        metric,
+        impactType,
+        impactMonth: impactMonth as Month,
+        impactDurationMonths: impactType === 'oneTime' ? 1 : impactDurationMonths,
+        impactPct: offsetPctVal / 100, // positive = tailwind
+        impactDescriptor: offsetDescriptor,
+        enabled: true,
+        offsetInsightId: insightId,
+      };
+      dispatch({ type: 'ADD_INSIGHT', payload: offsetInsight });
+      // Link primary to offset
+      insight.offsetInsightId = offsetId;
+      dispatch({ type: 'UPDATE_INSIGHT', payload: insight });
+    }
+
     resetForm();
   }
 
@@ -747,15 +823,38 @@ function MarketInsightsSection() {
     setImpactType(insight.impactType);
     setImpactMonth(insight.impactMonth);
     setImpactDurationMonths(insight.impactDurationMonths);
-    setImpactPct(Math.round(insight.impactPct * 100));
+    const pctVal = Math.round(insight.impactPct * 100);
+    setImpactPct(pctVal);
+    setSelectedDescriptor(insight.impactDescriptor || descriptorForPct(pctVal));
+
+    // Check for existing offset
+    if (insight.offsetInsightId) {
+      const offset = insights.find((i) => i.id === insight.offsetInsightId);
+      if (offset) {
+        setShowOffset(true);
+        setOffsetChannel(offset.channel);
+        setOffsetDescriptor(offset.impactDescriptor || 'Moderate Growth');
+      }
+    } else {
+      setShowOffset(false);
+      setOffsetChannel('inbound');
+      setOffsetDescriptor('Moderate Growth');
+    }
     setShowForm(true);
   }
 
-  const impactLabel = impactPct < 0
-    ? `${Math.abs(impactPct)}% lower than projected (headwind)`
-    : impactPct > 0
-    ? `${impactPct}% higher than projected (tailwind)`
-    : 'No impact';
+  // Filter active channels for offset dropdown
+  const cc = plan.channelConfig;
+  const activeChannelOptions = INSIGHT_CHANNEL_OPTIONS.filter((o) => {
+    if (o.value === 'all') return false;
+    if (o.value === channel) return false;
+    if (o.value === 'inbound' && !cc.hasInbound) return false;
+    if (o.value === 'outbound' && !cc.hasOutbound) return false;
+    if (o.value === 'newProduct' && !cc.hasNewProduct) return false;
+    if (o.value === 'expansion' && !cc.hasExpansion) return false;
+    if (o.value === 'churn' && !cc.hasChurn) return false;
+    return true;
+  });
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 bg-white">
@@ -878,43 +977,96 @@ function MarketInsightsSection() {
             </div>
           )}
 
-          {/* Impact % slider */}
+          {/* Impact descriptor pill buttons */}
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">
-              Impact %
-              <span className={`ml-2 font-normal ${impactPct < 0 ? 'text-red-600' : impactPct > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                {impactLabel}
-              </span>
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={-80}
-                max={80}
-                step={5}
-                value={impactPct}
-                onChange={(e) => setImpactPct(parseInt(e.target.value))}
-                className={`flex-1 h-1.5 rounded-lg appearance-none cursor-pointer ${
-                  impactPct < 0 ? 'accent-red-500' : impactPct > 0 ? 'accent-green-500' : 'accent-gray-400'
+            <label className="text-xs font-medium text-gray-600 block mb-2">Expected Impact</label>
+            <div className="flex flex-wrap gap-2">
+              {IMPACT_DESCRIPTORS.map((d) => {
+                const isSelected = selectedDescriptor === d.label;
+                const colorClass = d.pct > 0
+                  ? isSelected ? 'bg-green-100 border-green-400 text-green-800 ring-2 ring-green-400' : 'bg-white border-gray-200 text-gray-700 hover:border-green-300 hover:bg-green-50'
+                  : d.pct < 0
+                  ? isSelected ? 'bg-red-100 border-red-400 text-red-800 ring-2 ring-red-400' : 'bg-white border-gray-200 text-gray-700 hover:border-red-300 hover:bg-red-50'
+                  : isSelected ? 'bg-gray-200 border-gray-400 text-gray-800 ring-2 ring-gray-400' : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50';
+                return (
+                  <button
+                    key={d.label}
+                    type="button"
+                    onClick={() => selectDescriptor(d)}
+                    className={`inline-flex flex-col items-center px-3 py-2 rounded-full border text-xs font-medium transition-all ${colorClass}`}
+                  >
+                    <span>{d.emoji} {d.label}</span>
+                    <span className="text-[10px] font-normal opacity-60 mt-0.5">
+                      {d.pct > 0 ? '+' : ''}{d.pct}%
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Offset channel section */}
+          <div className="border-t border-blue-200 pt-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showOffset}
+                onClick={() => setShowOffset(!showOffset)}
+                className={`relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                  showOffset ? 'bg-blue-500' : 'bg-gray-300'
                 }`}
-                style={{
-                  background: `linear-gradient(to right, #ef4444 0%, #ef4444 50%, #d1d5db 50%, #d1d5db 50%, #22c55e 50%, #22c55e 100%)`,
-                }}
-              />
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  value={impactPct}
-                  onChange={(e) => setImpactPct(Math.max(-80, Math.min(80, parseInt(e.target.value) || 0)))}
-                  className={`w-16 text-right rounded border py-1 px-2 text-sm focus:ring-1 outline-none ${
-                    impactPct < 0 ? 'border-red-300 focus:border-red-500 focus:ring-red-500 text-red-700' :
-                    impactPct > 0 ? 'border-green-300 focus:border-green-500 focus:ring-green-500 text-green-700' :
-                    'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+              >
+                <span
+                  className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition ${
+                    showOffset ? 'translate-x-3' : 'translate-x-0'
                   }`}
                 />
-                <span className="text-xs text-gray-400">%</span>
+              </button>
+              <span className="text-xs font-medium text-gray-600">Will another channel compensate for this?</span>
+            </label>
+
+            {showOffset && (
+              <div className="mt-3 ml-9 space-y-3">
+                <div className="max-w-xs">
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Which channel will pick up the slack?</label>
+                  <select
+                    value={offsetChannel}
+                    onChange={(e) => setOffsetChannel(e.target.value as MarketInsight['channel'])}
+                    className="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                  >
+                    {activeChannelOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-2">How much will it compensate?</label>
+                  <div className="flex flex-wrap gap-2">
+                    {OFFSET_DESCRIPTORS.map((d) => {
+                      const isSelected = offsetDescriptor === d.label;
+                      return (
+                        <button
+                          key={d.label}
+                          type="button"
+                          onClick={() => setOffsetDescriptor(d.label)}
+                          className={`inline-flex flex-col items-center px-3 py-2 rounded-full border text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'bg-green-100 border-green-400 text-green-800 ring-2 ring-green-400'
+                              : 'bg-white border-gray-200 text-gray-700 hover:border-green-300 hover:bg-green-50'
+                          }`}
+                        >
+                          <span>{d.emoji} {d.label}</span>
+                          <span className="text-[10px] font-normal opacity-60 mt-0.5">
+                            {d.pct !== null ? `+${d.pct}%` : `+${Math.abs(impactPct)}%`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="flex gap-2 pt-1">
@@ -939,16 +1091,24 @@ function MarketInsightsSection() {
       {insights.length > 0 && (
         <div className="mt-4 space-y-2">
           {insights.map((insight) => {
+            // Skip offset insights shown inline — they display with their primary
+            const isPrimaryOffset = insight.offsetInsightId && insights.some((p) => p.offsetInsightId === insight.id);
+            if (isPrimaryOffset) return null;
+
             const isNeg = insight.impactPct < 0;
             const borderColor = isNeg ? 'border-red-300' : 'border-green-300';
             const bgColor = insight.enabled
               ? isNeg ? 'bg-red-50/50' : 'bg-green-50/50'
               : 'bg-gray-50';
             const channelLabel = INSIGHT_CHANNEL_OPTIONS.find((o) => o.value === insight.channel)?.label ?? insight.channel;
-            const metricLabel = INSIGHT_METRIC_OPTIONS.find((o) => o.value === insight.metric)?.label ?? insight.metric;
-            const pctDisplay = Math.round(insight.impactPct * 100);
-            const typeLabel = insight.impactType === 'oneTime' ? 'one-time' : `${insight.impactDurationMonths}mo gradual`;
+            const descriptor = insight.impactDescriptor || descriptorForPct(Math.round(insight.impactPct * 100));
             const monthLabel = MONTH_LABELS[(insight.impactMonth ?? 1) - 1];
+            const quarterLabel = `Q${Math.ceil((insight.impactMonth ?? 1) / 3)}`;
+
+            // Check for linked offset
+            const offsetInsight = insight.offsetInsightId ? insights.find((i) => i.id === insight.offsetInsightId) : null;
+            const offsetChannelLabel = offsetInsight ? (INSIGHT_CHANNEL_OPTIONS.find((o) => o.value === offsetInsight.channel)?.label ?? offsetInsight.channel) : null;
+            const offsetDesc = offsetInsight?.impactDescriptor || (offsetInsight ? descriptorForPct(Math.round(offsetInsight.impactPct * 100)) : null);
 
             return (
               <div key={insight.id} className={`border rounded-lg p-3 ${borderColor} ${bgColor} ${!insight.enabled ? 'opacity-60' : ''}`}>
@@ -957,18 +1117,26 @@ function MarketInsightsSection() {
                     <input
                       type="checkbox"
                       checked={insight.enabled}
-                      onChange={() => dispatch({ type: 'TOGGLE_INSIGHT', payload: insight.id })}
+                      onChange={() => {
+                        dispatch({ type: 'TOGGLE_INSIGHT', payload: insight.id });
+                        if (offsetInsight) dispatch({ type: 'TOGGLE_INSIGHT', payload: offsetInsight.id });
+                      }}
                       className={`mt-0.5 rounded ${isNeg ? 'text-red-600 focus:ring-red-500' : 'text-green-600 focus:ring-green-500'} border-gray-300`}
                     />
                     <div className="min-w-0">
-                      <h4 className="text-sm font-medium text-gray-800 truncate">{insight.label}</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {channelLabel} &middot; {metricLabel}{' '}
+                      <h4 className="text-sm font-medium text-gray-800">{insight.label}</h4>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {channelLabel} —{' '}
                         <span className={isNeg ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
-                          {pctDisplay > 0 ? '+' : ''}{pctDisplay}%
+                          {descriptor}
                         </span>{' '}
-                        in {monthLabel} ({typeLabel}) — {insight.enabled ? 'enabled' : 'disabled'}
+                        starting {quarterLabel} ({monthLabel})
                       </p>
+                      {offsetInsight && offsetChannelLabel && (
+                        <p className="text-xs text-blue-600 mt-0.5">
+                          Offset by {offsetChannelLabel}: <span className="font-medium">{offsetDesc}</span>
+                        </p>
+                      )}
                       {insight.description && (
                         <p className="text-xs text-gray-400 mt-0.5 truncate">{insight.description}</p>
                       )}
@@ -982,7 +1150,10 @@ function MarketInsightsSection() {
                       Edit
                     </button>
                     <button
-                      onClick={() => dispatch({ type: 'REMOVE_INSIGHT', payload: insight.id })}
+                      onClick={() => {
+                        if (insight.offsetInsightId) dispatch({ type: 'REMOVE_INSIGHT', payload: insight.offsetInsightId });
+                        dispatch({ type: 'REMOVE_INSIGHT', payload: insight.id });
+                      }}
                       className="text-xs text-gray-400 hover:text-red-500"
                     >
                       Remove

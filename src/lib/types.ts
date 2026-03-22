@@ -289,7 +289,9 @@ export interface MarketInsight {
   impactMonth: Month;
   impactDurationMonths: number;
   impactPct: number; // negative = headwind, positive = tailwind e.g. -0.20 = 20% decline
+  impactDescriptor: string; // human-readable label e.g. 'Significant Decline'
   enabled: boolean;
+  offsetInsightId?: string; // links to a paired offset insight
 }
 
 // ── Gap result ────────────────────────────────────────────────
