@@ -10,6 +10,8 @@ import type {
 
   ExistingPipeline,
 
+  ChannelConfig,
+
   Month,
 
 } from './types';
@@ -206,6 +208,15 @@ export const DEFAULT_HISTORICAL: RevenueBreakdown = {
 
 };
 
+export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
+  hasInbound: true,
+  hasOutbound: true,
+  hasNewProduct: true,
+  hasInboundHistory: true,
+  hasOutboundHistory: true,
+  hasNewProductHistory: true,
+};
+
 export function createDefaultPlan(): GTMPlan {
 
   return {
@@ -229,6 +240,8 @@ export function createDefaultPlan(): GTMPlan {
     ramp: DEFAULT_RAMP,
 
     historical: DEFAULT_HISTORICAL,
+
+    channelConfig: DEFAULT_CHANNEL_CONFIG,
 
     strategicBets: [],
 

@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel } from '@/lib/engine';
+import { runModel, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency } from '@/lib/format';
 import MetricInput from '@/components/shared/MetricInput';
 import FunnelInputs from '@/components/shared/FunnelInputs';
@@ -20,9 +20,14 @@ export default function HistoricalBenchmarks() {
 
   const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
 
+  const effectiveHistorical = useMemo(
+    () => applyChannelConfig(plan.historical, plan.channelConfig, 'historical'),
+    [plan.historical, plan.channelConfig],
+  );
+
   const model = useMemo(
-    () => runModel(plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
   );
 
   return (
@@ -37,23 +42,27 @@ export default function HistoricalBenchmarks() {
       </div>
 
       {/* Core Business */}
-      <FunnelInputs
-        title="Current Core Business Performance"
-        inbound={plan.historical.newBusiness.inbound}
-        outbound={plan.historical.newBusiness.outbound}
-        onInboundChange={(ib) =>
-          dispatch({
-            type: 'SET_HISTORICAL',
-            payload: { ...plan.historical, newBusiness: { ...plan.historical.newBusiness, inbound: ib } },
-          })
-        }
-        onOutboundChange={(ob) =>
-          dispatch({
-            type: 'SET_HISTORICAL',
-            payload: { ...plan.historical, newBusiness: { ...plan.historical.newBusiness, outbound: ob } },
-          })
-        }
-      />
+      {(plan.channelConfig.hasInboundHistory || plan.channelConfig.hasOutboundHistory) && (
+        <FunnelInputs
+          title="Current Core Business Performance"
+          inbound={plan.historical.newBusiness.inbound}
+          outbound={plan.historical.newBusiness.outbound}
+          onInboundChange={(ib) =>
+            dispatch({
+              type: 'SET_HISTORICAL',
+              payload: { ...plan.historical, newBusiness: { ...plan.historical.newBusiness, inbound: ib } },
+            })
+          }
+          onOutboundChange={(ob) =>
+            dispatch({
+              type: 'SET_HISTORICAL',
+              payload: { ...plan.historical, newBusiness: { ...plan.historical.newBusiness, outbound: ob } },
+            })
+          }
+          hideInbound={!plan.channelConfig.hasInboundHistory}
+          hideOutbound={!plan.channelConfig.hasOutboundHistory}
+        />
+      )}
 
       {/* Expansion & Churn */}
       <div className="border border-gray-200 rounded-lg p-4 bg-white">
@@ -87,23 +96,25 @@ export default function HistoricalBenchmarks() {
       </div>
 
       {/* New Product (may be zero if not yet launched) */}
-      <FunnelInputs
-        title="Current New Product Performance (if any)"
-        inbound={plan.historical.newProduct.inbound}
-        outbound={plan.historical.newProduct.outbound}
-        onInboundChange={(ib) =>
-          dispatch({
-            type: 'SET_HISTORICAL',
-            payload: { ...plan.historical, newProduct: { ...plan.historical.newProduct, inbound: ib } },
-          })
-        }
-        onOutboundChange={(ob) =>
-          dispatch({
-            type: 'SET_HISTORICAL',
-            payload: { ...plan.historical, newProduct: { ...plan.historical.newProduct, outbound: ob } },
-          })
-        }
-      />
+      {plan.channelConfig.hasNewProductHistory && (
+        <FunnelInputs
+          title="Current New Product Performance (if any)"
+          inbound={plan.historical.newProduct.inbound}
+          outbound={plan.historical.newProduct.outbound}
+          onInboundChange={(ib) =>
+            dispatch({
+              type: 'SET_HISTORICAL',
+              payload: { ...plan.historical, newProduct: { ...plan.historical.newProduct, inbound: ib } },
+            })
+          }
+          onOutboundChange={(ob) =>
+            dispatch({
+              type: 'SET_HISTORICAL',
+              payload: { ...plan.historical, newProduct: { ...plan.historical.newProduct, outbound: ob } },
+            })
+          }
+        />
+      )}
 
       {/* Historical projections table */}
       <RevenueTable

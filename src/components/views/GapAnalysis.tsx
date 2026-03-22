@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, calculateGap } from '@/lib/engine';
+import { runModel, calculateGap, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import type { GapResult, Month } from '@/lib/types';
 
@@ -12,13 +12,17 @@ export default function GapAnalysis() {
   const { plan } = useGTMPlan();
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
 
-  // Target model
+  // Target model (with channel config applied)
+  const effectiveTargets = useMemo(
+    () => applyChannelConfig(plan.targets, plan.channelConfig, 'targets'),
+    [plan.targets, plan.channelConfig],
+  );
   const targetModel = useMemo(
-    () => runModel(plan.targets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
-    [plan.targets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+    () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
+    [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
   );
 
-  // Historical model (flat seasonality, no ramp)
+  // Historical model (flat seasonality, no ramp, with channel config applied)
   const flatSeasonality = useMemo(() => ({
     monthly: Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
@@ -26,9 +30,13 @@ export default function GapAnalysis() {
   }), []);
   const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
 
+  const effectiveHistorical = useMemo(
+    () => applyChannelConfig(plan.historical, plan.channelConfig, 'historical'),
+    [plan.historical, plan.channelConfig],
+  );
   const historicalModel = useMemo(
-    () => runModel(plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
   );
 
   const gaps = useMemo(

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
-import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, StrategicBet } from '@/lib/types';
+import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet } from '@/lib/types';
 import { createDefaultPlan } from '@/lib/defaults';
 import { savePlan, loadPlan } from '@/lib/storage';
 
@@ -14,6 +14,7 @@ type Action =
   | { type: 'SET_HISTORICAL'; payload: RevenueBreakdown }
   | { type: 'SET_SEASONALITY'; payload: SeasonalityWeights }
   | { type: 'SET_RAMP'; payload: RampConfig }
+  | { type: 'SET_CHANNEL_CONFIG'; payload: ChannelConfig }
   | { type: 'ADD_BET'; payload: StrategicBet }
   | { type: 'UPDATE_BET'; payload: StrategicBet }
   | { type: 'REMOVE_BET'; payload: string }
@@ -35,6 +36,8 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
       return { ...state, seasonality: action.payload };
     case 'SET_RAMP':
       return { ...state, ramp: action.payload };
+    case 'SET_CHANNEL_CONFIG':
+      return { ...state, channelConfig: action.payload };
     case 'ADD_BET':
       return { ...state, strategicBets: [...state.strategicBets, action.payload] };
     case 'UPDATE_BET':

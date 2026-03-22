@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 
 import { useGTMPlan } from '@/context/GTMPlanContext';
 
-import { runModel, applyStrategicBets } from '@/lib/engine';
+import { runModel, applyStrategicBets, applyChannelConfig } from '@/lib/engine';
 
 import BetSelector from '@/components/strategic/BetSelector';
 
@@ -16,17 +16,25 @@ export default function StrategicBets() {
 
   const { plan, dispatch } = useGTMPlan();
 
-  // Target model
+  // Target model (with channel config applied)
 
-  const targetModel = useMemo(
+  const effectiveTargets = useMemo(
 
-    () => runModel(plan.targets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
+    () => applyChannelConfig(plan.targets, plan.channelConfig, 'targets'),
 
-    [plan.targets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+    [plan.targets, plan.channelConfig],
 
   );
 
-  // Status quo model (flat seasonality, no ramp)
+  const targetModel = useMemo(
+
+    () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
+
+    [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+
+  );
+
+  // Status quo model (flat seasonality, no ramp, with channel config applied)
 
   const flatSeasonality = useMemo(() => ({
 
@@ -40,21 +48,29 @@ export default function StrategicBets() {
 
   const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
 
-  const statusQuoModel = useMemo(
+  const effectiveHistorical = useMemo(
 
-    () => runModel(plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
+    () => applyChannelConfig(plan.historical, plan.channelConfig, 'historical'),
 
-    [plan.historical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    [plan.historical, plan.channelConfig],
 
   );
 
-  // With bets model — apply bets to historical, then use target's seasonality/ramp
+  const statusQuoModel = useMemo(
+
+    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
+
+    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+
+  );
+
+  // With bets model — apply bets to historical (with channel config), then use target's seasonality/ramp
 
   const withBetsInputs = useMemo(
 
-    () => applyStrategicBets(plan.historical, plan.strategicBets),
+    () => applyStrategicBets(effectiveHistorical, plan.strategicBets),
 
-    [plan.historical, plan.strategicBets],
+    [effectiveHistorical, plan.strategicBets],
 
   );
 

@@ -132,6 +132,16 @@ export interface StrategicBet {
   enabled: boolean;
 }
 
+// ── Channel configuration ────────────────────────────────────
+export interface ChannelConfig {
+  hasInbound: boolean;
+  hasOutbound: boolean;
+  hasNewProduct: boolean;
+  hasInboundHistory: boolean;
+  hasOutboundHistory: boolean;
+  hasNewProductHistory: boolean;
+}
+
 // ── Top-level plan ────────────────────────────────────────────
 export interface GTMPlan {
   id: string;
@@ -147,6 +157,7 @@ export interface GTMPlan {
 
   historical: RevenueBreakdown;
 
+  channelConfig: ChannelConfig;
   strategicBets: StrategicBet[];
 }
 

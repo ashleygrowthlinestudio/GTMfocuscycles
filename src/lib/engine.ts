@@ -3,6 +3,7 @@ import type {
   SeasonalityWeights,
   RampConfig,
   ExistingPipeline,
+  ChannelConfig,
   MonthlyResult,
   QuarterlyResult,
   GapResult,
@@ -258,6 +259,46 @@ export function applyStrategicBets(
           (cat.outbound as unknown as Record<string, number>)[bet.metric] = bet.improvedValue;
         }
       }
+    }
+  }
+
+  return modified;
+}
+
+// ── Channel config application ───────────────────────────────
+
+const ZERO_INBOUND: InboundFunnelInputs = { hisMonthly: 0, hisToPipelineRate: 0, winRate: 0, acv: 0, salesCycleMonths: 0 };
+const ZERO_OUTBOUND: OutboundFunnelInputs = { pipelineMonthly: 0, winRate: 0, acv: 0, salesCycleMonths: 0 };
+
+export function applyChannelConfig(
+  inputs: RevenueBreakdown,
+  config: ChannelConfig,
+  mode: 'targets' | 'historical',
+): RevenueBreakdown {
+  const modified: RevenueBreakdown = JSON.parse(JSON.stringify(inputs));
+
+  if (mode === 'targets') {
+    if (!config.hasInbound) {
+      modified.newBusiness.inbound = { ...ZERO_INBOUND };
+    }
+    if (!config.hasOutbound) {
+      modified.newBusiness.outbound = { ...ZERO_OUTBOUND };
+    }
+    if (!config.hasNewProduct) {
+      modified.newProduct.inbound = { ...ZERO_INBOUND };
+      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
+    }
+  } else {
+    // historical mode: zero out based on history toggles
+    if (!config.hasInboundHistory) {
+      modified.newBusiness.inbound = { ...ZERO_INBOUND };
+    }
+    if (!config.hasOutboundHistory) {
+      modified.newBusiness.outbound = { ...ZERO_OUTBOUND };
+    }
+    if (!config.hasNewProductHistory) {
+      modified.newProduct.inbound = { ...ZERO_INBOUND };
+      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
     }
   }
 

@@ -18,6 +18,10 @@ interface FunnelInputsProps {
 
   onOutboundChange: (inputs: OutboundFunnelInputs) => void;
 
+  hideInbound?: boolean;
+
+  hideOutbound?: boolean;
+
 }
 
 export default function FunnelInputs({
@@ -32,6 +36,10 @@ export default function FunnelInputs({
 
   onOutboundChange,
 
+  hideInbound = false,
+
+  hideOutbound = false,
+
 }: FunnelInputsProps) {
 
   return (
@@ -44,7 +52,7 @@ export default function FunnelInputs({
 
         {/* Inbound */}
 
-        <div className="space-y-3">
+        {!hideInbound && <div className="space-y-3">
 
           <h4 className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Inbound</h4>
 
@@ -116,11 +124,11 @@ export default function FunnelInputs({
 
           />
 
-        </div>
+        </div>}
 
         {/* Outbound */}
 
-        <div className="space-y-3">
+        {!hideOutbound && <div className="space-y-3">
 
           <h4 className="text-xs font-semibold text-green-600 uppercase tracking-wide">Outbound</h4>
 
@@ -178,7 +186,7 @@ export default function FunnelInputs({
 
           />
 
-        </div>
+        </div>}
 
       </div>
 
