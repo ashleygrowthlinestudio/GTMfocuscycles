@@ -281,18 +281,63 @@ export default function ExecutiveSummary() {
                     return v.toFixed(0);
                   };
 
+                  // Metric label
+                  const channelLabel = bet.channel === 'inbound' ? 'Inbound' : bet.channel === 'outbound' ? 'Outbound' : '';
+                  const catLabel = bet.category === 'newProduct' ? 'New Product ' : '';
+                  const metricLabels: Record<string, string> = {
+                    winRate: 'Win Rate', salesCycleMonths: 'Sales Cycle', hisToPipelineRate: 'HIS→Pipeline Rate',
+                    hisMonthly: 'HIS Volume', pipelineMonthly: 'Pipeline/mo', acv: 'ACV',
+                    expansionRate: 'Expansion Rate', monthlyChurnRate: 'Churn Rate',
+                  };
+                  const metricLabel = `${catLabel}${channelLabel}${channelLabel ? ' ' : ''}${metricLabels[bet.metric] || bet.metric}`;
+                  const diffVal = bet.improvedValue - bet.currentValue;
+                  const diffDisplay = isPct ? `${(Math.abs(diffVal) * 100).toFixed(1)}pp` : fmtVal(Math.abs(diffVal));
+
+                  // Downstream impact: compare withBets vs SQ for relevant channel
+                  const sumM = (arr: MonthlyResult[], fn: (m: MonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
+                  const bm = withBetsModel.monthly;
+                  const sm = sqModel.monthly;
+                  let closedWonDelta = 0;
+                  let customerDelta = 0;
+                  let impactDesc = '';
+
+                  if ((bet.category === 'newBusiness' || bet.category === 'newProduct') && (bet.channel === 'inbound' || !bet.channel)) {
+                    const cwGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductInboundClosedWon : (m: MonthlyResult) => m.inboundClosedWon;
+                    const dealGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductInboundDeals : (m: MonthlyResult) => m.inboundDeals;
+                    closedWonDelta += sumM(bm, cwGetter) - sumM(sm, cwGetter);
+                    customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
+                  }
+                  if ((bet.category === 'newBusiness' || bet.category === 'newProduct') && (bet.channel === 'outbound' || !bet.channel)) {
+                    const cwGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductOutboundClosedWon : (m: MonthlyResult) => m.outboundClosedWon;
+                    const dealGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductOutboundDeals : (m: MonthlyResult) => m.outboundDeals;
+                    closedWonDelta += sumM(bm, cwGetter) - sumM(sm, cwGetter);
+                    customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
+                  }
+                  if (bet.category === 'expansion') {
+                    const d = sumM(bm, (m) => m.expansionRevenue) - sumM(sm, (m) => m.expansionRevenue);
+                    impactDesc = `Improving expansion rate adds ~${formatCurrency(Math.abs(d))} in expansion revenue by year end`;
+                  } else if (bet.category === 'churn') {
+                    const d = sumM(bm, (m) => m.churnRevenue) - sumM(sm, (m) => m.churnRevenue);
+                    impactDesc = `Reducing churn saves ~${formatCurrency(Math.abs(d))} in retained ARR by year end`;
+                  } else if (closedWonDelta !== 0 || customerDelta !== 0) {
+                    impactDesc = `Improving ${metricLabels[bet.metric] || bet.metric} by ${diffDisplay} adds ~${formatCurrency(Math.max(0, closedWonDelta))} in closed won and ~${Math.round(Math.max(0, customerDelta))} new customers by year end`;
+                  }
+
                   return (
                     <div key={bet.id} className="border border-gray-200 rounded-lg p-4 bg-white">
                       <h4 className="text-sm font-semibold text-gray-800">{bet.name}</h4>
-                      <div className="flex items-center gap-2 mt-2 text-sm">
-                        <span className="text-gray-500">{fmtVal(bet.currentValue)}</span>
-                        <span className="text-gray-400">→</span>
+                      <div className="mt-1.5 text-xs text-gray-500">
+                        {metricLabel}: <span className="text-gray-700">{fmtVal(bet.currentValue)}</span>
+                        <span className="text-gray-400 mx-1">→</span>
                         <span className="font-medium text-blue-700">{fmtVal(bet.improvedValue)}</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
-                        This bet adds an estimated{' '}
-                        <span className="font-medium text-green-700">{formatCurrency(Math.max(0, perBetImpact))}</span> in
-                        ARR by year end
+                      {impactDesc && (
+                        <p className="text-xs text-green-700 mt-2 leading-relaxed bg-green-50 rounded px-2 py-1.5">
+                          {impactDesc}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-2">
+                        Net ARR impact: <span className="font-medium text-gray-700">{formatCurrency(Math.max(0, perBetImpact))}</span>
                       </p>
                     </div>
                   );
@@ -336,7 +381,96 @@ export default function ExecutiveSummary() {
           </>
         )}
 
-        {/* ── Section 5: Key Actions Needed ──────────────────── */}
+        {/* ── Section 5: Key Pipeline Milestones ──────────────── */}
+        {(() => {
+          type Milestone = { quarter: string; channel: string; closedWon: number; pipeline: number; createByMonth: number; isPast: boolean };
+          const milestones: Milestone[] = [];
+          const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+          const quarterEndMonths = [3, 6, 9, 12];
+
+          if (cc.hasInbound) {
+            const sc = effectiveTargets.newBusiness.inbound.salesCycleMonths;
+            planModel.quarterly.forEach((q, qi) => {
+              if (q.inboundClosedWon > 0) {
+                const createBy = quarterEndMonths[qi] - Math.round(sc);
+                milestones.push({ quarter: quarters[qi], channel: 'Inbound', closedWon: q.inboundClosedWon, pipeline: q.inboundPipelineCreated, createByMonth: createBy, isPast: isInYear && createBy < cm });
+              }
+            });
+          }
+          if (cc.hasOutbound) {
+            const sc = effectiveTargets.newBusiness.outbound.salesCycleMonths;
+            planModel.quarterly.forEach((q, qi) => {
+              if (q.outboundClosedWon > 0) {
+                const createBy = quarterEndMonths[qi] - Math.round(sc);
+                milestones.push({ quarter: quarters[qi], channel: 'Outbound', closedWon: q.outboundClosedWon, pipeline: q.outboundPipelineCreated, createByMonth: createBy, isPast: isInYear && createBy < cm });
+              }
+            });
+          }
+          if (cc.hasNewProduct) {
+            const scIb = effectiveTargets.newProduct.inbound.salesCycleMonths;
+            const scOb = effectiveTargets.newProduct.outbound.salesCycleMonths;
+            planModel.quarterly.forEach((q, qi) => {
+              const npCW = q.newProductInboundClosedWon + q.newProductOutboundClosedWon;
+              const npPipe = q.newProductInboundPipelineCreated + q.newProductOutboundPipelineCreated;
+              if (npCW > 0) {
+                const sc = Math.max(scIb, scOb);
+                const createBy = quarterEndMonths[qi] - Math.round(sc);
+                milestones.push({ quarter: quarters[qi], channel: 'New Product', closedWon: npCW, pipeline: npPipe, createByMonth: createBy, isPast: isInYear && createBy < cm });
+              }
+            });
+          }
+
+          if (milestones.length === 0) return null;
+
+          const monthLabel = (m: number) => {
+            if (m < 1) return `${m} mo before Jan`;
+            if (m > 12) return `Month ${m}`;
+            return MONTH_NAMES[m - 1];
+          };
+
+          return (
+            <>
+              <section className="print-break">
+                <h2 className="text-lg font-bold text-gray-900">Key Pipeline Milestones</h2>
+                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                  Based on sales cycle lengths, here is when pipeline must be created to hit quarterly closed-won targets.
+                </p>
+                <div className="mt-4 space-y-2">
+                  {milestones.map((ms, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-3 p-3 rounded-lg border ${
+                        ms.isPast ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      {ms.isPast && (
+                        <span className="flex-shrink-0 mt-0.5">
+                          <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        </span>
+                      )}
+                      <p className={`text-sm ${ms.isPast ? 'text-red-800' : 'text-gray-700'}`}>
+                        To hit <span className="font-semibold">{ms.quarter}</span>{' '}
+                        <span className="font-medium">{ms.channel.toLowerCase()}</span> closed won of{' '}
+                        <span className="font-semibold">{formatCurrency(ms.closedWon)}</span>, pipeline of{' '}
+                        <span className="font-semibold">{formatCurrency(ms.pipeline)}</span> must be created by{' '}
+                        <span className={`font-semibold ${ms.isPast ? 'text-red-700 underline' : 'text-blue-700'}`}>
+                          {monthLabel(ms.createByMonth)}
+                        </span>
+                        {ms.isPast && <span className="text-red-600 font-medium ml-1">(deadline passed)</span>}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <hr className="border-gray-200" />
+            </>
+          );
+        })()}
+
+        {/* ── Section 6: Key Actions Needed ──────────────────── */}
         {keyActions.length > 0 && (
           <section className="print-break">
             <h2 className="text-lg font-bold text-gray-900">Key Actions Needed</h2>
