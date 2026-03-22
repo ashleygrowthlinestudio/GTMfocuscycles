@@ -40,6 +40,14 @@ export function loadPlan(): GTMPlan | null {
     if (!plan.targetAllocationMode) plan.targetAllocationMode = 'historical';
     if (!plan.targetAllocations) plan.targetAllocations = { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
 
+    // Backfill strategic bet ramp fields
+    if (plan.strategicBets) {
+      for (const bet of plan.strategicBets) {
+        if (bet.startMonth === undefined) bet.startMonth = 1 as import('./types').Month;
+        if (bet.rampMonths === undefined) bet.rampMonths = 3;
+      }
+    }
+
     return plan;
 
   } catch {

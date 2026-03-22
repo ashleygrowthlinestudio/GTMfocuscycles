@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyStrategicBets, applyChannelConfig } from '@/lib/engine';
+import { runModel, runModelWithBets, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import type { MonthlyResult, QuarterlyResult } from '@/lib/types';
 
@@ -55,15 +55,11 @@ export default function ExecutiveSummary() {
     [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
   );
 
-  // With Bets model
+  // With Bets model (per-month ramped bets)
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
-  const withBetsInputs = useMemo(
-    () => applyStrategicBets(effectiveHistorical, plan.strategicBets),
-    [effectiveHistorical, plan.strategicBets],
-  );
   const withBetsModel = useMemo(
-    () => runModel(withBetsInputs, plan.seasonality, { rampMonths: 1, startMonth: 1 }, plan.startingARR, plan.existingPipeline),
-    [withBetsInputs, plan.seasonality, plan.startingARR, plan.existingPipeline],
+    () => runModelWithBets(effectiveHistorical, plan.strategicBets, plan.seasonality, { rampMonths: 1, startMonth: 1 }, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, plan.strategicBets, plan.seasonality, plan.startingARR, plan.existingPipeline],
   );
 
   // Key numbers

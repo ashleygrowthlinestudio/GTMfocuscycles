@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { QuarterlyResult, MonthlyResult } from '@/lib/types';
-import { formatCurrencyFull, formatNumber, formatMonthName } from '@/lib/format';
+import type { QuarterlyResult, MonthlyResult, StrategicBet } from '@/lib/types';
+import { getBetValueForMonth, getBetRampPct } from '@/lib/engine';
+import { formatCurrencyFull, formatNumber, formatMonthName, formatPercent } from '@/lib/format';
 
 interface BetComparisonTableProps {
   statusQuoQuarterly: QuarterlyResult[];
@@ -12,15 +13,26 @@ interface BetComparisonTableProps {
   withBetsMonthly: MonthlyResult[];
   targetMonthly: MonthlyResult[];
   targetARR: number;
+  bets?: StrategicBet[];
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-interface ComparisonRow {
-  label: string;
-  statusQuo: number;
-  withBets: number;
-  target: number;
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function isMixMetric(metric: string): boolean {
+  return metric.endsWith('MixPct');
+}
+
+function isPercentMetric(metric: string): boolean {
+  return ['winRate', 'hisToPipelineRate', 'expansionRate', 'monthlyChurnRate'].includes(metric);
+}
+
+function formatBetValue(metric: string, value: number): string {
+  if (isMixMetric(metric) || isPercentMetric(metric)) return formatPercent(value);
+  if (['acv', 'pipelineMonthly'].includes(metric)) return formatCurrencyFull(value);
+  if (metric === 'salesCycleMonths') return `${value.toFixed(1)} mo`;
+  return value.toFixed(0);
 }
 
 export default function BetComparisonTable({
@@ -31,6 +43,7 @@ export default function BetComparisonTable({
   withBetsMonthly,
   targetMonthly,
   targetARR,
+  bets,
 }: BetComparisonTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
 
@@ -46,6 +59,8 @@ export default function BetComparisonTable({
   const gapClosed = betsEndARR - sqEndARR;
   const totalGap = targetARR - sqEndARR;
   const percentClosed = totalGap > 0 ? Math.min(100, (gapClosed / totalGap) * 100) : 100;
+
+  const enabledBets = (bets || []).filter((b) => b.enabled);
 
   return (
     <div className="space-y-4">
@@ -89,6 +104,69 @@ export default function BetComparisonTable({
         <span>With Bets: {formatCurrencyFull(betsEndARR)}</span>
         <span>Target: {formatCurrencyFull(targetARR)}</span>
       </div>
+
+      {/* Ramp Timelines per bet */}
+      {enabledBets.length > 0 && (
+        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+          <div className="p-3 border-b border-gray-100 bg-gray-50">
+            <h3 className="text-sm font-semibold text-gray-700">Bet Ramp Timelines</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left py-2 px-3 font-medium text-gray-500 w-36">Bet</th>
+                  {MONTH_LABELS.map((m) => (
+                    <th key={m} className="text-center py-2 px-1 font-medium text-gray-500 min-w-[52px]">{m}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {enabledBets.map((bet) => (
+                  <tr key={bet.id} className="border-b border-gray-100">
+                    <td className="py-2 px-3 text-gray-700 font-medium">{bet.name}</td>
+                    {Array.from({ length: 12 }, (_, i) => {
+                      const month = i + 1;
+                      const rampPct = getBetRampPct(bet, month);
+                      const val = getBetValueForMonth(bet, month);
+                      const rampDisplay = Math.round(rampPct * 100);
+
+                      let bgColor: string;
+                      let textColor: string;
+                      if (rampPct === 0) {
+                        bgColor = 'bg-gray-100';
+                        textColor = 'text-gray-400';
+                      } else if (rampPct >= 1) {
+                        bgColor = 'bg-blue-100';
+                        textColor = 'text-blue-700';
+                      } else {
+                        bgColor = 'bg-blue-50';
+                        textColor = 'text-blue-600';
+                      }
+
+                      return (
+                        <td
+                          key={month}
+                          className={`py-2 px-1 text-center ${bgColor} ${textColor}`}
+                          title={`${MONTH_LABELS[i]}: ${formatBetValue(bet.metric, val)} (${rampDisplay}% ramped)`}
+                        >
+                          <div className="text-[10px] font-medium">{formatBetValue(bet.metric, val)}</div>
+                          <div className="h-1 mt-0.5 rounded-full bg-gray-200 overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 rounded-full"
+                              style={{ width: `${rampDisplay}%` }}
+                            />
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detail table */}
       <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">

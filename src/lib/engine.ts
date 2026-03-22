@@ -234,19 +234,43 @@ export function calculateGap(
 
 // ── Strategic bets ────────────────────────────────────────────
 
-export function applyStrategicBets(
+/** Calculate the interpolated bet value for a given month based on ramp schedule */
+export function getBetValueForMonth(bet: StrategicBet, month: number): number {
+  const startMonth = bet.startMonth ?? 1;
+  const rampMonths = bet.rampMonths ?? 3;
+  if (month < startMonth) return bet.currentValue;
+  if (rampMonths <= 0 || month >= startMonth + rampMonths) return bet.improvedValue;
+  const progress = (month - startMonth) / rampMonths;
+  return bet.currentValue + (bet.improvedValue - bet.currentValue) * progress;
+}
+
+/** Calculate the ramp percentage (0-1) for a given month */
+export function getBetRampPct(bet: StrategicBet, month: number): number {
+  const startMonth = bet.startMonth ?? 1;
+  const rampMonths = bet.rampMonths ?? 3;
+  if (month < startMonth) return 0;
+  if (rampMonths <= 0 || month >= startMonth + rampMonths) return 1;
+  return (month - startMonth) / rampMonths;
+}
+
+/**
+ * Apply strategic bets to a baseline RevenueBreakdown for a specific month.
+ * Uses linear interpolation based on each bet's startMonth and rampMonths.
+ */
+export function applyStrategicBetsForMonth(
   baseline: RevenueBreakdown,
   bets: StrategicBet[],
+  month: number,
 ): RevenueBreakdown {
-  // Deep clone
   const modified: RevenueBreakdown = JSON.parse(JSON.stringify(baseline));
 
   for (const bet of bets) {
     if (!bet.enabled) continue;
 
-    // Revenue mix bets: scale channel inputs by (improved / current) ratio
+    const effectiveValue = getBetValueForMonth(bet, month);
+
     if (bet.category === 'revenueMix') {
-      const scale = bet.currentValue > 0 ? bet.improvedValue / bet.currentValue : 1;
+      const scale = bet.currentValue > 0 ? effectiveValue / bet.currentValue : 1;
       switch (bet.metric) {
         case 'inboundMixPct':
           modified.newBusiness.inbound.hisMonthly *= scale;
@@ -271,28 +295,169 @@ export function applyStrategicBets(
     }
 
     if (bet.category === 'expansion' && bet.metric === 'expansionRate') {
-      modified.expansion.expansionRate = bet.improvedValue;
+      modified.expansion.expansionRate = effectiveValue;
     } else if (bet.category === 'churn' && bet.metric === 'monthlyChurnRate') {
-      modified.churn.monthlyChurnRate = bet.improvedValue;
+      modified.churn.monthlyChurnRate = effectiveValue;
     } else if (bet.category === 'newBusiness' || bet.category === 'newProduct') {
       const cat = bet.category === 'newBusiness' ? modified.newBusiness : modified.newProduct;
       if (bet.channel === 'inbound') {
-        (cat.inbound as unknown as Record<string, number>)[bet.metric] = bet.improvedValue;
+        (cat.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
       } else if (bet.channel === 'outbound') {
-        (cat.outbound as unknown as Record<string, number>)[bet.metric] = bet.improvedValue;
+        (cat.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
       } else {
-        // Apply to both channels if no specific channel
         if (bet.metric in cat.inbound) {
-          (cat.inbound as unknown as Record<string, number>)[bet.metric] = bet.improvedValue;
+          (cat.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
         }
         if (bet.metric in cat.outbound) {
-          (cat.outbound as unknown as Record<string, number>)[bet.metric] = bet.improvedValue;
+          (cat.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
         }
       }
     }
   }
 
   return modified;
+}
+
+/**
+ * Legacy flat apply — uses fully-ramped bet values for all months.
+ * Kept for backward compatibility (e.g. contexts where month doesn't matter).
+ */
+export function applyStrategicBets(
+  baseline: RevenueBreakdown,
+  bets: StrategicBet[],
+): RevenueBreakdown {
+  // Use month 12 to get fully-ramped values (backward compat)
+  return applyStrategicBetsForMonth(baseline, bets, 12);
+}
+
+/**
+ * Run the model with per-month strategic bet ramping.
+ * For each month, applies the interpolated bet values to the baseline,
+ * then calculates pipeline/revenue for that month.
+ */
+export function runModelWithBets(
+  baseline: RevenueBreakdown,
+  bets: StrategicBet[],
+  seasonality: SeasonalityWeights,
+  ramp: RampConfig,
+  startingARR: number,
+  existingPipeline: ExistingPipeline,
+): ModelRun {
+  const results: MonthlyResult[] = [];
+
+  const inboundCorePipeline: number[] = [];
+  const outboundCorePipeline: number[] = [];
+  const inboundNewProdPipeline: number[] = [];
+  const outboundNewProdPipeline: number[] = [];
+
+  // Pre-compute per-month inputs
+  const monthlyInputs: RevenueBreakdown[] = [];
+  for (let i = 0; i < 12; i++) {
+    monthlyInputs[i] = applyStrategicBetsForMonth(baseline, bets, i + 1);
+  }
+
+  let currentARR = startingARR;
+
+  for (let i = 0; i < 12; i++) {
+    const month = (i + 1) as Month;
+    const inputs = monthlyInputs[i];
+    const seasonWeight = getSeasonalityWeight(month, seasonality);
+    const rampMult = getRampMultiplier(month, ramp);
+
+    // Pipeline creation uses this month's inputs
+    const ib = calcInboundPipeline(inputs.newBusiness.inbound, seasonWeight, rampMult);
+    inboundCorePipeline[i] = ib.pipeline;
+
+    const obPipeline = calcOutboundPipeline(inputs.newBusiness.outbound, seasonWeight, rampMult);
+    outboundCorePipeline[i] = obPipeline;
+
+    const npIb = calcInboundPipeline(inputs.newProduct.inbound, seasonWeight, rampMult);
+    inboundNewProdPipeline[i] = npIb.pipeline;
+
+    const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
+    outboundNewProdPipeline[i] = npObPipeline;
+
+    // Closed Won uses the closing month's win rate but pipeline from creation month
+    const ibCycleIdx = i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
+    const obCycleIdx = i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
+    const npIbCycleIdx = i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
+    const npObCycleIdx = i - Math.round(inputs.newProduct.outbound.salesCycleMonths);
+
+    let inboundClosedWon = 0;
+    let outboundClosedWon = 0;
+    let npInboundClosedWon = 0;
+    let npOutboundClosedWon = 0;
+
+    if (ibCycleIdx >= 0) {
+      inboundClosedWon = inboundCorePipeline[ibCycleIdx] * inputs.newBusiness.inbound.winRate;
+    }
+    if (obCycleIdx >= 0) {
+      outboundClosedWon = outboundCorePipeline[obCycleIdx] * inputs.newBusiness.outbound.winRate;
+    }
+    if (npIbCycleIdx >= 0) {
+      npInboundClosedWon = inboundNewProdPipeline[npIbCycleIdx] * inputs.newProduct.inbound.winRate;
+    }
+    if (npObCycleIdx >= 0) {
+      npOutboundClosedWon = outboundNewProdPipeline[npObCycleIdx] * inputs.newProduct.outbound.winRate;
+    }
+
+    if (month === existingPipeline.expectedCloseMonth) {
+      inboundClosedWon += existingPipeline.inboundCore * existingPipeline.winRate;
+      outboundClosedWon += existingPipeline.outboundCore * existingPipeline.winRate;
+      npInboundClosedWon += existingPipeline.inboundNewProduct * existingPipeline.winRate;
+      npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
+    }
+
+    const ibAcv = inputs.newBusiness.inbound.acv || 1;
+    const obAcv = inputs.newBusiness.outbound.acv || 1;
+    const npIbAcv = inputs.newProduct.inbound.acv || 1;
+    const npObAcv = inputs.newProduct.outbound.acv || 1;
+
+    const inboundDeals = inboundClosedWon / ibAcv;
+    const outboundDeals = outboundClosedWon / obAcv;
+    const npInboundDeals = npInboundClosedWon / npIbAcv;
+    const npOutboundDeals = npOutboundClosedWon / npObAcv;
+
+    const expansionRevenue = currentARR * inputs.expansion.expansionRate;
+    const churnRevenue = -(currentARR * inputs.churn.monthlyChurnRate);
+
+    const totalNewARR =
+      inboundClosedWon + outboundClosedWon +
+      npInboundClosedWon + npOutboundClosedWon +
+      expansionRevenue + churnRevenue;
+
+    currentARR += totalNewARR;
+
+    results.push({
+      month,
+      inboundPipelineCreated: ib.pipeline,
+      outboundPipelineCreated: obPipeline,
+      newProductInboundPipelineCreated: npIb.pipeline,
+      newProductOutboundPipelineCreated: npObPipeline,
+      hisRequired: ib.his,
+      newProductHisRequired: npIb.his,
+      inboundClosedWon,
+      outboundClosedWon,
+      newProductInboundClosedWon: npInboundClosedWon,
+      newProductOutboundClosedWon: npOutboundClosedWon,
+      expansionRevenue,
+      churnRevenue,
+      totalNewARR,
+      cumulativeARR: currentARR,
+      inboundDeals,
+      outboundDeals,
+      newProductInboundDeals: npInboundDeals,
+      newProductOutboundDeals: npOutboundDeals,
+    });
+  }
+
+  const quarterly = rollUpToQuarters(results);
+  return {
+    monthly: results,
+    quarterly,
+    endingARR: results[11].cumulativeARR,
+    totalNewARRAdded: results.reduce((s, m) => s + m.totalNewARR, 0),
+  };
 }
 
 // ── Channel mix calculation ──────────────────────────────────

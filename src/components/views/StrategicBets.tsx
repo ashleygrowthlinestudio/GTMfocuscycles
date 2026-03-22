@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyStrategicBets, applyChannelConfig, computeChannelMix } from '@/lib/engine';
+import { runModel, runModelWithBets, applyChannelConfig, computeChannelMix } from '@/lib/engine';
 import BetSelector from '@/components/strategic/BetSelector';
 import BetCard from '@/components/strategic/BetCard';
 import BetComparisonTable from '@/components/strategic/BetComparisonTable';
@@ -55,15 +55,10 @@ export default function StrategicBets() {
       r.expansionRevenue + Math.abs(r.churnRevenue), 0);
   }, [statusQuoModel]);
 
-  // With bets model — apply bets to historical (with channel config), then use target's seasonality/ramp
-  const withBetsInputs = useMemo(
-    () => applyStrategicBets(effectiveHistorical, plan.strategicBets),
-    [effectiveHistorical, plan.strategicBets],
-  );
-
+  // With bets model — apply per-month ramped bets to historical (with channel config)
   const withBetsModel = useMemo(
-    () => runModel(withBetsInputs, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
-    [withBetsInputs, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+    () => runModelWithBets(effectiveHistorical, plan.strategicBets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, plan.strategicBets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
   );
 
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
@@ -120,6 +115,7 @@ export default function StrategicBets() {
           withBetsMonthly={withBetsModel.monthly}
           targetMonthly={targetModel.monthly}
           targetARR={plan.targetARR}
+          bets={plan.strategicBets}
         />
       )}
     </div>

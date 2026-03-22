@@ -1,8 +1,11 @@
 'use client';
 
 import React from 'react';
-import type { StrategicBet } from '@/lib/types';
+import type { StrategicBet, Month } from '@/lib/types';
+import { getBetValueForMonth, getBetRampPct } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent } from '@/lib/format';
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 interface BetCardProps {
   bet: StrategicBet;
@@ -42,6 +45,100 @@ function getMixChannelLabel(metric: string): string {
     churnMixPct: 'Churn',
   };
   return map[metric] || metric;
+}
+
+/** Ramp timeline indicator — 12 bars showing the improvement curve */
+function RampIndicator({ bet }: { bet: StrategicBet }) {
+  const isMix = isMixMetric(bet.metric);
+  const isPct = isPercentMetric(bet.metric);
+
+  return (
+    <div className="mt-3">
+      <div className="text-[10px] text-gray-400 mb-1">Ramp Timeline</div>
+      <div className="flex gap-0.5">
+        {Array.from({ length: 12 }, (_, i) => {
+          const month = i + 1;
+          const rampPct = getBetRampPct(bet, month);
+          const interpolated = getBetValueForMonth(bet, month);
+          const rampPctDisplay = Math.round(rampPct * 100);
+
+          // Format the interpolated value for tooltip
+          let valStr: string;
+          if (isMix || isPct) {
+            valStr = `${(interpolated * 100).toFixed(1)}%`;
+          } else if (isCurrencyMetric(bet.metric)) {
+            valStr = formatCurrencyFull(interpolated);
+          } else if (bet.metric === 'salesCycleMonths') {
+            valStr = `${interpolated.toFixed(1)} mo`;
+          } else {
+            valStr = interpolated.toFixed(0);
+          }
+
+          const tooltip = `${MONTH_LABELS[i]}: ${bet.name} = ${valStr} (${rampPctDisplay}% ramped)`;
+
+          // Color: gray if no ramp, gradient if ramping, full if fully ramped
+          let bgColor: string;
+          if (rampPct === 0) {
+            bgColor = 'bg-gray-200';
+          } else if (rampPct >= 1) {
+            bgColor = isMix ? 'bg-purple-500' : 'bg-blue-500';
+          } else {
+            // Interpolate opacity via inline style
+            bgColor = '';
+          }
+
+          return (
+            <div
+              key={month}
+              className={`flex-1 h-4 rounded-sm cursor-help relative group ${bgColor}`}
+              style={rampPct > 0 && rampPct < 1 ? {
+                backgroundColor: isMix
+                  ? `rgba(168, 85, 247, ${0.2 + rampPct * 0.8})`
+                  : `rgba(59, 130, 246, ${0.2 + rampPct * 0.8})`,
+              } : undefined}
+              title={tooltip}
+            >
+              <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[8px] text-gray-400">
+                {MONTH_LABELS[i][0]}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="h-3" /> {/* spacer for month letters */}
+    </div>
+  );
+}
+
+/** Shared ramp controls for startMonth and rampMonths */
+function RampControls({ bet, onUpdate }: { bet: StrategicBet; onUpdate: (bet: StrategicBet) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 mt-3">
+      <div>
+        <label className="text-xs text-gray-500 block mb-1">Starts in</label>
+        <select
+          value={bet.startMonth ?? 1}
+          onChange={(e) => onUpdate({ ...bet, startMonth: parseInt(e.target.value) as Month })}
+          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+        >
+          {MONTH_LABELS.map((label, i) => (
+            <option key={i + 1} value={i + 1}>{label}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-xs text-gray-500 block mb-1">Months to full impact</label>
+        <input
+          type="number"
+          value={bet.rampMonths ?? 3}
+          onChange={(e) => onUpdate({ ...bet, rampMonths: Math.max(1, Math.min(12, parseInt(e.target.value) || 1)) })}
+          min={1}
+          max={12}
+          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+        />
+      </div>
+    </div>
+  );
 }
 
 export default function BetCard({ bet, onUpdate, onRemove, onToggle, totalRevenue }: BetCardProps) {
@@ -149,11 +246,19 @@ export default function BetCard({ bet, onUpdate, onRemove, onToggle, totalRevenu
             </div>
           </div>
         )}
+
+        {/* Ramp controls */}
+        {bet.enabled && (
+          <>
+            <RampControls bet={bet} onUpdate={onUpdate} />
+            <RampIndicator bet={bet} />
+          </>
+        )}
       </div>
     );
   }
 
-  // Standard metric bet card (unchanged)
+  // Standard metric bet card
   return (
     <div className={`border rounded-lg p-4 bg-white transition-colors ${
       bet.enabled ? 'border-blue-300 shadow-sm' : 'border-gray-200 opacity-60'
@@ -226,6 +331,14 @@ export default function BetCard({ bet, onUpdate, onRemove, onToggle, totalRevenu
             className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
         </div>
+      )}
+
+      {/* Ramp controls and indicator */}
+      {bet.enabled && (
+        <>
+          <RampControls bet={bet} onUpdate={onUpdate} />
+          <RampIndicator bet={bet} />
+        </>
       )}
     </div>
   );

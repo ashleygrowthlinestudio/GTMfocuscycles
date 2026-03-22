@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals } from '@/lib/types';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet } from '@/lib/types';
 import type { PipelineTimingMap } from '@/lib/engine';
+import { getBetRampPct } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 
 interface RevenueTableProps {
@@ -17,11 +18,12 @@ interface RevenueTableProps {
   planMonthly?: MonthlyResult[];
   planQuarterly?: QuarterlyResult[];
   pipelineTimingMap?: PipelineTimingMap;
+  bets?: StrategicBet[];
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
   const [showVariance, setShowVariance] = useState(false);
   const isInYear = planningMode === 'in-year';
@@ -67,7 +69,7 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
         {viewMode === 'quarterly' ? (
           <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} bets={bets} />
         )}
       </div>
     </div>
@@ -482,7 +484,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap, bets }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap; bets?: StrategicBet[] }) {
   const rows = useMemo(() => {
     const base = buildRows(targets);
     // Add Cumulative ARR at end
@@ -506,6 +508,29 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
             </th>
           ))}
         </tr>
+        {/* Ramp indicator row for active bets */}
+        {bets && bets.some((b) => b.enabled && (b.rampMonths ?? 3) > 1) && (
+          <tr className="border-b border-gray-100 bg-gray-50/50">
+            <th className="text-left py-0.5 px-3 text-[9px] text-gray-400 sticky left-0 bg-gray-50/50">Bet Ramp</th>
+            {monthly.map((m) => {
+              const rampingBets = (bets || []).filter((b) => {
+                if (!b.enabled) return false;
+                const pct = getBetRampPct(b, m.month);
+                return pct > 0 && pct < 1;
+              });
+              if (rampingBets.length === 0) return <th key={m.month} className="py-0.5 px-2" />;
+              const avgRamp = rampingBets.reduce((s, b) => s + getBetRampPct(b, m.month), 0) / rampingBets.length;
+              const tooltip = rampingBets.map((b) => `${b.name}: ${Math.round(getBetRampPct(b, m.month) * 100)}% ramped`).join('\n');
+              return (
+                <th key={m.month} className="py-0.5 px-2" title={tooltip}>
+                  <div className="h-1 rounded-full bg-gray-200 overflow-hidden cursor-help">
+                    <div className="h-full bg-blue-400 rounded-full" style={{ width: `${Math.round(avgRamp * 100)}%` }} />
+                  </div>
+                </th>
+              );
+            })}
+          </tr>
+        )}
       </thead>
       <tbody>
         {rows.map((row, idx) => (

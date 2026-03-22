@@ -182,6 +182,8 @@ export interface StrategicBet {
   currentValue: number;
   improvedValue: number;
   enabled: boolean;
+  startMonth: Month;
+  rampMonths: number;
 }
 
 // ── Channel configuration ────────────────────────────────────

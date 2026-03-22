@@ -87,6 +87,8 @@ export default function BetSelector({ existingBets, historical, channelMix, tota
       currentValue,
       improvedValue: currentValue,
       enabled: true,
+      startMonth: 1 as import('@/lib/types').Month,
+      rampMonths: 3,
     };
     onAdd(bet);
   }
@@ -103,6 +105,8 @@ export default function BetSelector({ existingBets, historical, channelMix, tota
       currentValue,
       improvedValue: currentValue,
       enabled: true,
+      startMonth: 1 as import('@/lib/types').Month,
+      rampMonths: 3,
     };
     onAdd(bet);
   }
