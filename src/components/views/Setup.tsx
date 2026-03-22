@@ -530,95 +530,100 @@ export default function Setup() {
         onChange={(s) => dispatch({ type: 'SET_SEASONALITY', payload: s })}
       />
 
-      {/* Section 8: Actuals */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Actuals</h3>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Plan Start Date</label>
-            <input
-              type="date"
-              value={actuals.planStartDate}
-              onChange={(e) =>
-                dispatch({ type: 'SET_ACTUALS', payload: { ...actuals, planStartDate: e.target.value } })
+      {/* Section 8: Legacy Actuals (only shown in future-year mode) */}
+      {planningMode === 'future-year' && (
+        <div className="border border-gray-200 rounded-lg p-4 bg-white">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Actuals</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Switch to <span className="font-medium">In-Year Reforecast</span> mode above to enter detailed monthly actuals that flow into projections.
+          </p>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Plan Start Date</label>
+              <input
+                type="date"
+                value={actuals.planStartDate}
+                onChange={(e) =>
+                  dispatch({ type: 'SET_ACTUALS', payload: { ...actuals, planStartDate: e.target.value } })
+                }
+                className="w-full rounded-md border border-gray-300 bg-white py-1.5 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <MetricInput
+              label="Current Month (reforecasting as of)"
+              value={actuals.currentMonth}
+              onChange={(v) =>
+                dispatch({ type: 'SET_ACTUALS', payload: { ...actuals, currentMonth: Math.max(1, Math.min(12, v)) as Month } })
               }
-              className="w-full rounded-md border border-gray-300 bg-white py-1.5 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              type="number"
+              min={1}
+              max={12}
+              hint="e.g. 3 = reforecasting as of March"
             />
           </div>
-          <MetricInput
-            label="Current Month (reforecasting as of)"
-            value={actuals.currentMonth}
-            onChange={(v) =>
-              dispatch({ type: 'SET_ACTUALS', payload: { ...actuals, currentMonth: Math.max(1, Math.min(12, v)) as Month } })
-            }
-            type="number"
-            min={1}
-            max={12}
-            hint="e.g. 3 = reforecasting as of March"
-          />
-        </div>
 
-        {completedMonths.length > 0 && (
-          <div className="mt-4">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Actuals (Completed Months)</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-2 text-xs font-medium text-gray-500 uppercase">Month</th>
-                    <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">ARR ($)</th>
-                    <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">New ARR ($)</th>
-                    <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">Churn ($)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completedMonths.map((m) => {
-                    const a = getActual(m);
-                    return (
-                      <tr key={m} className="border-b border-gray-100">
-                        <td className="py-2 px-2 font-medium text-gray-700">{MONTH_LABELS[m - 1]}</td>
-                        <td className="py-1 px-2">
-                          <input
-                            type="number"
-                            value={a.arr}
-                            onChange={(e) => updateActual(m, 'arr', parseFloat(e.target.value) || 0)}
-                            step={1000}
-                            className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                          />
-                        </td>
-                        <td className="py-1 px-2">
-                          <input
-                            type="number"
-                            value={a.newARR}
-                            onChange={(e) => updateActual(m, 'newARR', parseFloat(e.target.value) || 0)}
-                            step={1000}
-                            className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                          />
-                        </td>
-                        <td className="py-1 px-2">
-                          <input
-                            type="number"
-                            value={a.churn}
-                            onChange={(e) => updateActual(m, 'churn', parseFloat(e.target.value) || 0)}
-                            step={1000}
-                            className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {completedMonths.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Actuals (Completed Months)</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 text-xs font-medium text-gray-500 uppercase">Month</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">ARR ($)</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">New ARR ($)</th>
+                      <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase">Churn ($)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedMonths.map((m) => {
+                      const a = getActual(m);
+                      return (
+                        <tr key={m} className="border-b border-gray-100">
+                          <td className="py-2 px-2 font-medium text-gray-700">{MONTH_LABELS[m - 1]}</td>
+                          <td className="py-1 px-2">
+                            <input
+                              type="number"
+                              value={a.arr}
+                              onChange={(e) => updateActual(m, 'arr', parseFloat(e.target.value) || 0)}
+                              step={1000}
+                              className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </td>
+                          <td className="py-1 px-2">
+                            <input
+                              type="number"
+                              value={a.newARR}
+                              onChange={(e) => updateActual(m, 'newARR', parseFloat(e.target.value) || 0)}
+                              step={1000}
+                              className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </td>
+                          <td className="py-1 px-2">
+                            <input
+                              type="number"
+                              value={a.churn}
+                              onChange={(e) => updateActual(m, 'churn', parseFloat(e.target.value) || 0)}
+                              step={1000}
+                              className="w-full text-right rounded-md border border-gray-300 bg-white py-1 px-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {completedMonths.length === 0 && (
-          <p className="text-sm text-gray-400 italic mt-2">
-            Set the current month above 1 to enter actuals for completed months.
-          </p>
-        )}
-      </div>
+          {completedMonths.length === 0 && (
+            <p className="text-sm text-gray-400 italic mt-2">
+              Set the current month above 1 to enter actuals for completed months.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

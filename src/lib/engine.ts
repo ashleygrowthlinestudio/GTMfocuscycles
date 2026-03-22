@@ -375,8 +375,14 @@ export function runModelWithActuals(
   if (avgIbAcv > 0) recal.newBusiness.inbound.acv = avgIbAcv;
   if (avgObAcv > 0) recal.newBusiness.outbound.acv = avgObAcv;
 
-  // Track pipeline month-by-month for waterfall (actual pipeline for completed months,
-  // recalibrated projected pipeline for future months)
+  // Step 1: Run the full projected model with recalibrated rates.
+  // This gives us fallback values for any actual field the user left at 0.
+  const projected = calculateMonthlyRevenue(recal, seasonality, ramp, startingARR, existingPipeline);
+
+  // Step 2: Build pipeline arrays and results month-by-month.
+  // For completed months with actuals: use non-zero actual values, fall back
+  // to projected values for fields left at 0. This prevents $0 when the user
+  // only fills in some fields (e.g. closed won but not pipeline or expansion).
   const ibCorePipe: number[] = [];
   const obCorePipe: number[] = [];
   const ibNewProdPipe: number[] = [];
@@ -388,27 +394,31 @@ export function runModelWithActuals(
   for (let i = 0; i < 12; i++) {
     const month = (i + 1) as Month;
     const actual = actualsByMonth.get(month);
-    const isCompleted = month < currentMonth && !!actual;
+    const p = projected[i]; // projected fallback for this month
+    const isCompleted = month < currentMonth;
 
-    const seasonWeight = getSeasonalityWeight(month, seasonality);
-    const rampMult = getRampMultiplier(month, ramp);
+    if (isCompleted && actual) {
+      // ── Completed month with actuals: blend actual (non-zero) with projected (fallback) ──
+      // Helper: use actual value if user entered it (non-zero), else projected fallback
+      const or = (act: number, proj: number) => act !== 0 ? act : proj;
 
-    if (isCompleted) {
-      // ── Completed month: use actual values ──
-      // Store actual pipeline created for waterfall into future months
-      ibCorePipe[i] = actual.inboundPipelineCreated;
-      obCorePipe[i] = actual.outboundPipelineCreated;
-      // New product pipeline: use projected (not tracked in actuals)
-      const npIb = calcInboundPipeline(recal.newProduct.inbound, seasonWeight, rampMult);
-      const npObPipeline = calcOutboundPipeline(recal.newProduct.outbound, seasonWeight, rampMult);
-      ibNewProdPipe[i] = npIb.pipeline;
-      obNewProdPipe[i] = npObPipeline;
+      const ibPipe = or(actual.inboundPipelineCreated, p.inboundPipelineCreated);
+      const obPipe = or(actual.outboundPipelineCreated, p.outboundPipelineCreated);
 
-      const totalNewARR =
-        actual.inboundClosedWon + actual.outboundClosedWon +
-        actual.newProductInboundClosedWon + actual.newProductOutboundClosedWon +
-        actual.expansionRevenue + actual.churnRevenue;
+      // Store pipeline for waterfall into future months
+      ibCorePipe[i] = ibPipe;
+      obCorePipe[i] = obPipe;
+      ibNewProdPipe[i] = p.newProductInboundPipelineCreated;
+      obNewProdPipe[i] = p.newProductOutboundPipelineCreated;
 
+      const ibCW = or(actual.inboundClosedWon, p.inboundClosedWon);
+      const obCW = or(actual.outboundClosedWon, p.outboundClosedWon);
+      const npIbCW = or(actual.newProductInboundClosedWon, p.newProductInboundClosedWon);
+      const npObCW = or(actual.newProductOutboundClosedWon, p.newProductOutboundClosedWon);
+      const exp = or(actual.expansionRevenue, p.expansionRevenue);
+      const churn = or(actual.churnRevenue, p.churnRevenue);
+
+      const totalNewARR = ibCW + obCW + npIbCW + npObCW + exp + churn;
       currentARR += totalNewARR;
 
       const ibAcv = actual.inboundACV || inputs.newBusiness.inbound.acv || 1;
@@ -418,29 +428,44 @@ export function runModelWithActuals(
 
       results.push({
         month,
-        inboundPipelineCreated: actual.inboundPipelineCreated,
-        outboundPipelineCreated: actual.outboundPipelineCreated,
-        newProductInboundPipelineCreated: npIb.pipeline,
-        newProductOutboundPipelineCreated: npObPipeline,
-        hisRequired: actual.hisToPipelineRate > 0 && ibAcv > 0
-          ? actual.inboundPipelineCreated / (actual.hisToPipelineRate * ibAcv)
-          : npIb.his,
-        newProductHisRequired: npIb.his,
-        inboundClosedWon: actual.inboundClosedWon,
-        outboundClosedWon: actual.outboundClosedWon,
-        newProductInboundClosedWon: actual.newProductInboundClosedWon,
-        newProductOutboundClosedWon: actual.newProductOutboundClosedWon,
-        expansionRevenue: actual.expansionRevenue,
-        churnRevenue: actual.churnRevenue,
+        inboundPipelineCreated: ibPipe,
+        outboundPipelineCreated: obPipe,
+        newProductInboundPipelineCreated: p.newProductInboundPipelineCreated,
+        newProductOutboundPipelineCreated: p.newProductOutboundPipelineCreated,
+        hisRequired: or(
+          actual.hisToPipelineRate > 0 && ibAcv > 0
+            ? actual.inboundPipelineCreated / (actual.hisToPipelineRate * ibAcv)
+            : 0,
+          p.hisRequired,
+        ),
+        newProductHisRequired: p.newProductHisRequired,
+        inboundClosedWon: ibCW,
+        outboundClosedWon: obCW,
+        newProductInboundClosedWon: npIbCW,
+        newProductOutboundClosedWon: npObCW,
+        expansionRevenue: exp,
+        churnRevenue: churn,
         totalNewARR,
         cumulativeARR: currentARR,
-        inboundDeals: ibAcv > 0 ? actual.inboundClosedWon / ibAcv : 0,
-        outboundDeals: obAcv > 0 ? actual.outboundClosedWon / obAcv : 0,
-        newProductInboundDeals: npIbAcv > 0 ? actual.newProductInboundClosedWon / npIbAcv : 0,
-        newProductOutboundDeals: npObAcv > 0 ? actual.newProductOutboundClosedWon / npObAcv : 0,
+        inboundDeals: ibAcv > 0 ? ibCW / ibAcv : 0,
+        outboundDeals: obAcv > 0 ? obCW / obAcv : 0,
+        newProductInboundDeals: npIbAcv > 0 ? npIbCW / npIbAcv : 0,
+        newProductOutboundDeals: npObAcv > 0 ? npObCW / npObAcv : 0,
       });
+    } else if (isCompleted) {
+      // ── Completed month WITHOUT actuals entry: use projected, track ARR ──
+      ibCorePipe[i] = p.inboundPipelineCreated;
+      obCorePipe[i] = p.outboundPipelineCreated;
+      ibNewProdPipe[i] = p.newProductInboundPipelineCreated;
+      obNewProdPipe[i] = p.newProductOutboundPipelineCreated;
+
+      currentARR += p.totalNewARR;
+      results.push({ ...p, cumulativeARR: currentARR });
     } else {
       // ── Future month: compute from recalibrated rates with rebased ARR ──
+      const seasonWeight = getSeasonalityWeight(month, seasonality);
+      const rampMult = getRampMultiplier(month, ramp);
+
       // Pipeline creation
       const ib = calcInboundPipeline(recal.newBusiness.inbound, seasonWeight, rampMult);
       ibCorePipe[i] = ib.pipeline;
@@ -475,11 +500,10 @@ export function runModelWithActuals(
         npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
       }
 
-      // Expansion & churn based on REBASED currentARR (not projected ARR)
+      // Expansion & churn based on REBASED currentARR
       const expansionRevenue = currentARR * recal.expansion.expansionRate;
       const churnRevenue = -(currentARR * recal.churn.monthlyChurnRate);
 
-      // Deals
       const ibAcv = recal.newBusiness.inbound.acv || 1;
       const obAcv = recal.newBusiness.outbound.acv || 1;
       const npIbAcv = recal.newProduct.inbound.acv || 1;
