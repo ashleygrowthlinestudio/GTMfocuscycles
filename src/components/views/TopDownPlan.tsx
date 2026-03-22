@@ -4,14 +4,13 @@ import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import { runModel, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency } from '@/lib/format';
-import MetricInput from '@/components/shared/MetricInput';
-import FunnelInputs from '@/components/shared/FunnelInputs';
 import RevenueTable from '@/components/shared/RevenueTable';
-import SeasonalityEditor from '@/components/shared/SeasonalityEditor';
-import type { Month } from '@/lib/types';
+import type { RampConfig } from '@/lib/types';
+
+const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 
 export default function TopDownPlan() {
-  const { plan, dispatch } = useGTMPlan();
+  const { plan } = useGTMPlan();
   const cc = plan.channelConfig;
 
   const effectiveTargets = useMemo(
@@ -20,8 +19,8 @@ export default function TopDownPlan() {
   );
 
   const model = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
-    [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+    () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
+    [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
   );
 
   const projectedEnd = model.endingARR;
@@ -41,156 +40,6 @@ export default function TopDownPlan() {
           suffix={gap > 0 ? 'short' : 'above'}
         />
       </div>
-
-      {/* Plan meta inputs — Ramp settings only (Starting/Target ARR moved to Setup) */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Ramp Settings</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <MetricInput
-            label="Ramp Months"
-            value={plan.ramp.rampMonths}
-            onChange={(v) =>
-              dispatch({ type: 'SET_RAMP', payload: { ...plan.ramp, rampMonths: Math.max(1, v) } })
-            }
-            type="number"
-            min={1}
-            max={12}
-            hint="Months to reach full capacity"
-          />
-          <MetricInput
-            label="Ramp Start Month"
-            value={plan.ramp.startMonth}
-            onChange={(v) =>
-              dispatch({ type: 'SET_RAMP', payload: { ...plan.ramp, startMonth: Math.max(1, Math.min(12, v)) as Month } })
-            }
-            type="number"
-            min={1}
-            max={12}
-          />
-        </div>
-      </div>
-
-      {/* Existing pipeline */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Existing Pipeline (In-Flight at Year Start)</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          {cc.hasInbound && (
-            <MetricInput
-              label="Inbound Core ($)"
-              value={plan.existingPipeline.inboundCore}
-              onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, inboundCore: v } })}
-              type="currency"
-            />
-          )}
-          {cc.hasOutbound && (
-            <MetricInput
-              label="Outbound Core ($)"
-              value={plan.existingPipeline.outboundCore}
-              onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, outboundCore: v } })}
-              type="currency"
-            />
-          )}
-          {cc.hasNewProduct && (
-            <>
-              <MetricInput
-                label="Inbound New Product ($)"
-                value={plan.existingPipeline.inboundNewProduct}
-                onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, inboundNewProduct: v } })}
-                type="currency"
-              />
-              <MetricInput
-                label="Outbound New Product ($)"
-                value={plan.existingPipeline.outboundNewProduct}
-                onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, outboundNewProduct: v } })}
-                type="currency"
-              />
-            </>
-          )}
-          <MetricInput
-            label="Expected Close Month"
-            value={plan.existingPipeline.expectedCloseMonth}
-            onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, expectedCloseMonth: Math.max(1, Math.min(12, v)) as Month } })}
-            type="number"
-            min={1}
-            max={12}
-          />
-          <MetricInput
-            label="Win Rate"
-            value={plan.existingPipeline.winRate}
-            onChange={(v) => dispatch({ type: 'SET_EXISTING_PIPELINE', payload: { ...plan.existingPipeline, winRate: v } })}
-            type="percent"
-          />
-        </div>
-      </div>
-
-      {/* Core Business funnel — show inbound/outbound based on config */}
-      {(cc.hasInbound || cc.hasOutbound) && (
-        <FunnelInputs
-          title="Core Business — New Logos"
-          inbound={plan.targets.newBusiness.inbound}
-          outbound={plan.targets.newBusiness.outbound}
-          onInboundChange={(ib) =>
-            dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, newBusiness: { ...plan.targets.newBusiness, inbound: ib } } })
-          }
-          onOutboundChange={(ob) =>
-            dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, newBusiness: { ...plan.targets.newBusiness, outbound: ob } } })
-          }
-          hideInbound={!cc.hasInbound}
-          hideOutbound={!cc.hasOutbound}
-        />
-      )}
-
-      {/* Expansion & Churn — respect channel toggles */}
-      {(cc.hasExpansion || cc.hasChurn) && (
-        <div className="border border-gray-200 rounded-lg p-4 bg-white">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Expansion & Churn</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {cc.hasExpansion && (
-              <MetricInput
-                label="Monthly Expansion Rate"
-                value={plan.targets.expansion.expansionRate}
-                onChange={(v) =>
-                  dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, expansion: { expansionRate: v } } })
-                }
-                type="percent"
-                hint="% of existing ARR that expands each month"
-              />
-            )}
-            {cc.hasChurn && (
-              <MetricInput
-                label="Monthly Churn Rate"
-                value={plan.targets.churn.monthlyChurnRate}
-                onChange={(v) =>
-                  dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, churn: { monthlyChurnRate: v } } })
-                }
-                type="percent"
-                hint="% of ARR lost each month"
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* New Product Business funnel */}
-      {cc.hasNewProduct && (
-        <FunnelInputs
-          title="New Product Business — Additional Bet"
-          inbound={plan.targets.newProduct.inbound}
-          outbound={plan.targets.newProduct.outbound}
-          onInboundChange={(ib) =>
-            dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, newProduct: { ...plan.targets.newProduct, inbound: ib } } })
-          }
-          onOutboundChange={(ob) =>
-            dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, newProduct: { ...plan.targets.newProduct, outbound: ob } } })
-          }
-        />
-      )}
-
-      {/* Seasonality */}
-      <SeasonalityEditor
-        seasonality={plan.seasonality}
-        onChange={(s) => dispatch({ type: 'SET_SEASONALITY', payload: s })}
-      />
 
       {/* Revenue output table */}
       <RevenueTable

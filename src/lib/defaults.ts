@@ -12,6 +12,8 @@ import type {
 
   ChannelConfig,
 
+  Actuals,
+
   Month,
 
 } from './types';
@@ -34,7 +36,7 @@ export const DEFAULT_SEASONALITY: SeasonalityWeights = {
 
 export const DEFAULT_RAMP: RampConfig = {
 
-  rampMonths: 3,
+  rampMonths: 1,
 
   startMonth: 1,
 
@@ -208,6 +210,12 @@ export const DEFAULT_HISTORICAL: RevenueBreakdown = {
 
 };
 
+export const DEFAULT_ACTUALS: Actuals = {
+  planStartDate: new Date().toISOString().split('T')[0],
+  currentMonth: 1 as Month,
+  monthlyActuals: [],
+};
+
 export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
@@ -246,6 +254,8 @@ export function createDefaultPlan(): GTMPlan {
     channelConfig: DEFAULT_CHANNEL_CONFIG,
 
     strategicBets: [],
+
+    actuals: DEFAULT_ACTUALS,
 
   };
 

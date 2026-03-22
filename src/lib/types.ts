@@ -57,6 +57,20 @@ export interface ExistingPipeline {
   winRate: number;               // expected win rate on existing pipeline
 }
 
+// ── Actuals (reforecasting) ──────────────────────────────────
+export interface MonthlyActual {
+  month: Month;
+  arr: number;
+  newARR: number;
+  churn: number;
+}
+
+export interface Actuals {
+  planStartDate: string;        // ISO date string (YYYY-MM-DD)
+  currentMonth: Month;          // reforecasting as-of month
+  monthlyActuals: MonthlyActual[];
+}
+
 // ── Monthly result row ────────────────────────────────────────
 export interface MonthlyResult {
   month: Month;
@@ -161,6 +175,7 @@ export interface GTMPlan {
 
   channelConfig: ChannelConfig;
   strategicBets: StrategicBet[];
+  actuals: Actuals;
 }
 
 // ── Gap result ────────────────────────────────────────────────
