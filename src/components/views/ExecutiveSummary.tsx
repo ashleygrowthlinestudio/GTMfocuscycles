@@ -3,8 +3,8 @@
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import { runModel, runModelWithBets, applyChannelConfig } from '@/lib/engine';
-import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
-import type { MonthlyResult, QuarterlyResult } from '@/lib/types';
+import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown } from '@/lib/types';
 
 type ViewMode = 'quarterly' | 'monthly';
 
@@ -232,9 +232,9 @@ export default function ExecutiveSummary() {
             </div>
 
             {goalsView === 'quarterly' ? (
-              <GoalsTableQuarterly quarterly={planModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} />
+              <GoalsTableQuarterly quarterly={planModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
             ) : (
-              <GoalsTableMonthly monthly={planModel.monthly} cc={cc} isInYear={isInYear} cm={cm} />
+              <GoalsTableMonthly monthly={planModel.monthly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
             )}
           </div>
         </section>
@@ -253,9 +253,9 @@ export default function ExecutiveSummary() {
             {gapToClose > 0 ? 'short of' : 'above'} target.
           </p>
 
-          {/* Condensed Plan vs SQ delta table — quarterly, top metrics only */}
+          {/* Full Status Quo metric table — quarterly, Plan vs SQ with deltas */}
           <div className="mt-4 overflow-x-auto">
-            <StatusQuoDeltaTable planQ={planModel.quarterly} sqQ={sqModel.quarterly} cc={cc} />
+            <StatusQuoDeltaTable planQ={planModel.quarterly} sqQ={sqModel.quarterly} cc={cc} planTargets={effectiveTargets} sqTargets={effectiveHistorical} />
           </div>
         </section>
 
@@ -371,11 +371,30 @@ export default function ExecutiveSummary() {
 
 // ── Goals Table (Quarterly) ──────────────────────────────────
 
-function GoalsTableQuarterly({ quarterly, cc, isInYear, cm }: {
+type GoalsRow = {
+  label: string;
+  values: (string | number)[];
+  total: string | number;
+  isSecondary?: boolean;
+  isHighlight?: boolean;
+  isClosedWon?: boolean;
+  isChurn?: boolean;
+};
+
+function pipelineDeadlineMonth(closeQuarterIdx: number, salesCycle: number): string {
+  // Quarter end months: Q1=3, Q2=6, Q3=9, Q4=12
+  const closeMonth = (closeQuarterIdx + 1) * 3;
+  const createBy = closeMonth - Math.round(salesCycle);
+  if (createBy < 1) return `${createBy} mo before Jan`;
+  return MONTH_NAMES[createBy - 1]?.slice(0, 3) ?? `M${createBy}`;
+}
+
+function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
   quarterly: QuarterlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
   isInYear: boolean;
   cm: number;
+  targets: RevenueBreakdown;
 }) {
   const quarterMonths: Record<string, number[]> = { Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12] };
 
@@ -388,26 +407,72 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm }: {
     return <><ActBadge /><PlanBadge /></>;
   }
 
-  type Row = { label: string; values: number[]; total: number };
-  const rows: Row[] = [];
+  const rows: GoalsRow[] = [];
 
-  const add = (label: string, getter: (q: QuarterlyResult) => number) => {
+  const addCurrency = (label: string, getter: (q: QuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
     const values = quarterly.map(getter);
-    rows.push({ label, values, total: values.reduce((s, v) => s + v, 0) });
+    rows.push({ label, values: values.map(formatCurrencyFull), total: formatCurrencyFull(values.reduce((s, v) => s + v, 0)), ...opts });
+  };
+  const addNumber = (label: string, getter: (q: QuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
+    const values = quarterly.map(getter);
+    rows.push({ label, values: values.map((v) => Math.round(v).toLocaleString()), total: Math.round(values.reduce((s, v) => s + v, 0)).toLocaleString(), ...opts });
+  };
+  const addConstant = (label: string, value: string, opts?: Partial<GoalsRow>) => {
+    rows.push({ label, values: [value, value, value, value], total: value, isSecondary: true, ...opts });
   };
 
-  add('Total New ARR', (q) => q.totalNewARR);
-  if (cc.hasInbound) add('Inbound Closed Won', (q) => q.inboundClosedWon);
-  if (cc.hasOutbound) add('Outbound Closed Won', (q) => q.outboundClosedWon);
-  if (cc.hasNewProduct) add('New Product', (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon);
-  if (cc.hasExpansion) add('Expansion', (q) => q.expansionRevenue);
-  if (cc.hasChurn) add('Churn', (q) => q.churnRevenue);
+  // Total New ARR
+  addCurrency('Total New ARR', (q) => q.totalNewARR, { isHighlight: true });
+
+  // Inbound channel
+  if (cc.hasInbound) {
+    const ib = targets.newBusiness.inbound;
+    addCurrency('IB Qualified Pipeline $', (q) => q.inboundPipelineCreated);
+    // Pipeline deadline note per quarter
+    const deadlineNote = quarterly.map((_, qi) => `Create by ${pipelineDeadlineMonth(qi, ib.salesCycleMonths)}`).join(' | ');
+    rows[rows.length - 1].label = `IB Qualified Pipeline $`;
+    addNumber('IB HIS Volume', (q) => q.hisRequired);
+    addConstant('IB Win Rate', formatPercent(ib.winRate));
+    addConstant('IB ACV', formatCurrencyFull(ib.acv));
+    addConstant('IB Sales Cycle', `${ib.salesCycleMonths} mo`);
+    addCurrency('Inbound Closed Won', (q) => q.inboundClosedWon, { isClosedWon: true });
+    addNumber('IB New Customers', (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0));
+  }
+
+  // Outbound channel
+  if (cc.hasOutbound) {
+    const ob = targets.newBusiness.outbound;
+    addCurrency('OB Qualified Pipeline $', (q) => q.outboundPipelineCreated);
+    addConstant('OB Win Rate', formatPercent(ob.winRate));
+    addConstant('OB ACV', formatCurrencyFull(ob.acv));
+    addConstant('OB Sales Cycle', `${ob.salesCycleMonths} mo`);
+    addCurrency('Outbound Closed Won', (q) => q.outboundClosedWon, { isClosedWon: true });
+    addNumber('OB New Customers', (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0));
+  }
+
+  // New Product
+  if (cc.hasNewProduct) {
+    addCurrency('New Product Won', (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0));
+  }
+
+  // Expansion
+  if (cc.hasExpansion) {
+    addConstant('Expansion Rate', formatPercent(targets.expansion.expansionRate));
+    addCurrency('Expansion Revenue', (q) => q.expansionRevenue);
+  }
+
+  // Churn
+  if (cc.hasChurn) {
+    addConstant('Churn Rate', formatPercent(targets.churn.monthlyChurnRate), { isChurn: true });
+    addCurrency('Churn Revenue', (q) => q.churnRevenue, { isChurn: true });
+  }
 
   return (
     <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
       <thead>
         <tr className="bg-gray-50 border-b border-gray-200">
-          <th className="text-left py-2 px-3 font-medium text-gray-500 w-44">Metric</th>
+          <th className="text-left py-2 px-3 font-medium text-gray-500 w-48">Metric</th>
           {quarterly.map((q) => (
             <th key={q.quarter} className="text-right py-2 px-3 font-medium text-gray-500">
               {q.quarter}{badges(q)}
@@ -417,15 +482,27 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm }: {
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, i) => (
-          <tr key={row.label} className={`border-b border-gray-100 ${i === 0 ? 'bg-blue-50 font-semibold' : ''}`}>
-            <td className={`py-1.5 px-3 ${i === 0 ? 'text-gray-800' : 'text-gray-700'}`}>{row.label}</td>
-            {row.values.map((v, qi) => (
-              <td key={qi} className="py-1.5 px-3 text-right text-gray-900">{formatCurrencyFull(v)}</td>
-            ))}
-            <td className="py-1.5 px-3 text-right font-medium text-gray-900">{formatCurrencyFull(row.total)}</td>
-          </tr>
-        ))}
+        {rows.map((row, i) => {
+          const bgClass = row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50/50' : '';
+          const labelClass = row.isSecondary ? 'py-1 px-3 pl-6 text-gray-400 italic text-[11px]'
+            : row.isHighlight ? 'py-1.5 px-3 text-gray-800 font-semibold'
+            : row.isClosedWon ? 'py-1.5 px-3 text-purple-900 font-medium'
+            : row.isChurn ? 'py-1.5 px-3 text-red-700'
+            : 'py-1.5 px-3 text-gray-700';
+          const valClass = row.isSecondary ? 'py-1 px-3 text-right text-gray-400 italic text-[11px]'
+            : row.isChurn ? 'py-1.5 px-3 text-right text-red-600'
+            : 'py-1.5 px-3 text-right text-gray-900';
+
+          return (
+            <tr key={`${row.label}-${i}`} className={`border-b border-gray-100 ${bgClass}`}>
+              <td className={labelClass}>{row.label}</td>
+              {row.values.map((v, qi) => (
+                <td key={qi} className={valClass}>{v}</td>
+              ))}
+              <td className={`${valClass} font-medium`}>{row.total}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -433,32 +510,78 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm }: {
 
 // ── Goals Table (Monthly) ────────────────────────────────────
 
-function GoalsTableMonthly({ monthly, cc, isInYear, cm }: {
+type MonthlyGoalsRow = {
+  label: string;
+  values: string[];
+  isSecondary?: boolean;
+  isHighlight?: boolean;
+  isClosedWon?: boolean;
+  isChurn?: boolean;
+};
+
+function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
   monthly: MonthlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
   isInYear: boolean;
   cm: number;
+  targets: RevenueBreakdown;
 }) {
-  type Row = { label: string; values: number[] };
-  const rows: Row[] = [];
+  const rows: MonthlyGoalsRow[] = [];
 
-  const add = (label: string, getter: (m: MonthlyResult) => number) => {
-    rows.push({ label, values: monthly.map(getter) });
+  const addCurrency = (label: string, getter: (m: MonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
+    rows.push({ label, values: monthly.map((m) => formatCurrencyFull(getter(m))), ...opts });
+  };
+  const addNumber = (label: string, getter: (m: MonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
+    rows.push({ label, values: monthly.map((m) => Math.round(getter(m)).toLocaleString()), ...opts });
+  };
+  const addConstant = (label: string, value: string, opts?: Partial<MonthlyGoalsRow>) => {
+    rows.push({ label, values: monthly.map(() => value), isSecondary: true, ...opts });
   };
 
-  add('Total New ARR', (m) => m.totalNewARR);
-  if (cc.hasInbound) add('Inbound Closed Won', (m) => m.inboundClosedWon);
-  if (cc.hasOutbound) add('Outbound Closed Won', (m) => m.outboundClosedWon);
-  if (cc.hasNewProduct) add('New Product', (m) => m.newProductInboundClosedWon + m.newProductOutboundClosedWon);
-  if (cc.hasExpansion) add('Expansion', (m) => m.expansionRevenue);
-  if (cc.hasChurn) add('Churn', (m) => m.churnRevenue);
+  addCurrency('Total New ARR', (m) => m.totalNewARR, { isHighlight: true });
+
+  if (cc.hasInbound) {
+    const ib = targets.newBusiness.inbound;
+    addCurrency('IB Qualified Pipeline $', (m) => m.inboundPipelineCreated);
+    addNumber('IB HIS Volume', (m) => m.hisRequired);
+    addConstant('IB Win Rate', formatPercent(ib.winRate));
+    addConstant('IB ACV', formatCurrencyFull(ib.acv));
+    addConstant('IB Sales Cycle', `${ib.salesCycleMonths} mo`);
+    addCurrency('Inbound Closed Won', (m) => m.inboundClosedWon, { isClosedWon: true });
+    addNumber('IB New Customers', (m) => m.inboundDeals);
+  }
+
+  if (cc.hasOutbound) {
+    const ob = targets.newBusiness.outbound;
+    addCurrency('OB Qualified Pipeline $', (m) => m.outboundPipelineCreated);
+    addConstant('OB Win Rate', formatPercent(ob.winRate));
+    addConstant('OB ACV', formatCurrencyFull(ob.acv));
+    addConstant('OB Sales Cycle', `${ob.salesCycleMonths} mo`);
+    addCurrency('Outbound Closed Won', (m) => m.outboundClosedWon, { isClosedWon: true });
+    addNumber('OB New Customers', (m) => m.outboundDeals);
+  }
+
+  if (cc.hasNewProduct) {
+    addCurrency('New Product Won', (m) => m.newProductInboundClosedWon + m.newProductOutboundClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (m) => m.newProductInboundDeals + m.newProductOutboundDeals);
+  }
+
+  if (cc.hasExpansion) {
+    addConstant('Expansion Rate', formatPercent(targets.expansion.expansionRate));
+    addCurrency('Expansion Revenue', (m) => m.expansionRevenue);
+  }
+
+  if (cc.hasChurn) {
+    addConstant('Churn Rate', formatPercent(targets.churn.monthlyChurnRate), { isChurn: true });
+    addCurrency('Churn Revenue', (m) => m.churnRevenue, { isChurn: true });
+  }
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
         <thead>
           <tr className="bg-gray-50 border-b border-gray-200">
-            <th className="text-left py-2 px-3 font-medium text-gray-500 sticky left-0 bg-gray-50 w-44">Metric</th>
+            <th className="text-left py-2 px-3 font-medium text-gray-500 sticky left-0 bg-gray-50 w-48">Metric</th>
             {monthly.map((m) => (
               <th key={m.month} className="text-right py-2 px-2 font-medium text-gray-500 min-w-[72px]">
                 {formatMonthName(m.month)}
@@ -468,56 +591,107 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm }: {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.label} className={`border-b border-gray-100 ${i === 0 ? 'bg-blue-50 font-semibold' : ''}`}>
-              <td className={`py-1.5 px-3 sticky left-0 bg-inherit ${i === 0 ? 'text-gray-800' : 'text-gray-700'}`}>{row.label}</td>
-              {row.values.map((v, mi) => (
-                <td key={mi} className="py-1.5 px-2 text-right text-gray-900">{formatCurrencyFull(v)}</td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row, i) => {
+            const bgClass = row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50/50' : '';
+            const labelClass = row.isSecondary ? 'py-1 px-3 pl-6 text-gray-400 italic text-[11px] sticky left-0 bg-inherit'
+              : row.isHighlight ? 'py-1.5 px-3 text-gray-800 font-semibold sticky left-0 bg-inherit'
+              : row.isClosedWon ? 'py-1.5 px-3 text-purple-900 font-medium sticky left-0 bg-inherit'
+              : row.isChurn ? 'py-1.5 px-3 text-red-700 sticky left-0 bg-inherit'
+              : 'py-1.5 px-3 text-gray-700 sticky left-0 bg-inherit';
+            const valClass = row.isSecondary ? 'py-1 px-2 text-right text-gray-400 italic text-[11px]'
+              : row.isChurn ? 'py-1.5 px-2 text-right text-red-600'
+              : 'py-1.5 px-2 text-right text-gray-900';
+
+            return (
+              <tr key={`${row.label}-${i}`} className={`border-b border-gray-100 ${bgClass}`}>
+                <td className={labelClass}>{row.label}</td>
+                {row.values.map((v, mi) => (
+                  <td key={mi} className={valClass}>{v}</td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-// ── Status Quo Delta Table (condensed quarterly) ─────────────
+// ── Status Quo Delta Table (full metric set, quarterly) ──────
 
-function StatusQuoDeltaTable({ planQ, sqQ, cc }: {
+function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
   planQ: QuarterlyResult[];
   sqQ: QuarterlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
+  planTargets: RevenueBreakdown;
+  sqTargets: RevenueBreakdown;
 }) {
-  type Metric = { label: string; getPlan: (q: QuarterlyResult) => number; getSq: (q: QuarterlyResult) => number };
-  const metrics: Metric[] = [];
+  type DeltaRow = {
+    label: string;
+    getPlan: (q: QuarterlyResult) => number;
+    getSq: (q: QuarterlyResult) => number;
+    fmt: (v: number) => string;
+    isSecondary?: boolean;
+    isClosedWon?: boolean;
+    isChurn?: boolean;
+    isHighlight?: boolean;
+    // For constant-rate rows, show these values directly
+    planConst?: string;
+    sqConst?: string;
+  };
+  const metrics: DeltaRow[] = [];
 
+  // Total New ARR
+  metrics.push({ label: 'Total New ARR', getPlan: (q) => q.totalNewARR, getSq: (q) => q.totalNewARR, fmt: formatCurrencyFull, isHighlight: true });
+
+  // Inbound
   if (cc.hasInbound) {
-    metrics.push({ label: 'Inbound Closed Won', getPlan: (q) => q.inboundClosedWon, getSq: (q) => q.inboundClosedWon });
-    metrics.push({ label: 'Inbound Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0) });
-  }
-  if (cc.hasOutbound) {
-    metrics.push({ label: 'Outbound Closed Won', getPlan: (q) => q.outboundClosedWon, getSq: (q) => q.outboundClosedWon });
-    metrics.push({ label: 'Outbound Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0) });
-  }
-  if (cc.hasNewProduct) {
-    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, getSq: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon });
-  }
-  if (cc.hasExpansion) {
-    metrics.push({ label: 'Expansion Revenue', getPlan: (q) => q.expansionRevenue, getSq: (q) => q.expansionRevenue });
-  }
-  if (cc.hasChurn) {
-    metrics.push({ label: 'Churn Revenue', getPlan: (q) => q.churnRevenue, getSq: (q) => q.churnRevenue });
+    const pIb = planTargets.newBusiness.inbound;
+    const sIb = sqTargets.newBusiness.inbound;
+    metrics.push({ label: 'IB Qualified Pipeline $', getPlan: (q) => q.inboundPipelineCreated, getSq: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull });
+    metrics.push({ label: 'IB HIS Volume', getPlan: (q) => q.hisRequired, getSq: (q) => q.hisRequired, fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'IB Win Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(pIb.winRate), sqConst: formatPercent(sIb.winRate) });
+    metrics.push({ label: 'IB ACV', getPlan: () => 0, getSq: () => 0, fmt: formatCurrencyFull, isSecondary: true, planConst: formatCurrencyFull(pIb.acv), sqConst: formatCurrencyFull(sIb.acv) });
+    metrics.push({ label: 'IB Sales Cycle', getPlan: () => 0, getSq: () => 0, fmt: (v) => `${v} mo`, isSecondary: true, planConst: `${pIb.salesCycleMonths} mo`, sqConst: `${sIb.salesCycleMonths} mo` });
+    metrics.push({ label: 'Inbound Closed Won', getPlan: (q) => q.inboundClosedWon, getSq: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
+    metrics.push({ label: 'IB New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
   }
 
-  const isCurrencyRow = (label: string) => label.includes('Won') || label.includes('Revenue');
-  const fmtCell = (label: string, v: number) => isCurrencyRow(label) ? formatCurrencyFull(v) : Math.round(v).toLocaleString();
+  // Outbound
+  if (cc.hasOutbound) {
+    const pOb = planTargets.newBusiness.outbound;
+    const sOb = sqTargets.newBusiness.outbound;
+    metrics.push({ label: 'OB Qualified Pipeline $', getPlan: (q) => q.outboundPipelineCreated, getSq: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull });
+    metrics.push({ label: 'OB Win Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(pOb.winRate), sqConst: formatPercent(sOb.winRate) });
+    metrics.push({ label: 'OB ACV', getPlan: () => 0, getSq: () => 0, fmt: formatCurrencyFull, isSecondary: true, planConst: formatCurrencyFull(pOb.acv), sqConst: formatCurrencyFull(sOb.acv) });
+    metrics.push({ label: 'OB Sales Cycle', getPlan: () => 0, getSq: () => 0, fmt: (v) => `${v} mo`, isSecondary: true, planConst: `${pOb.salesCycleMonths} mo`, sqConst: `${sOb.salesCycleMonths} mo` });
+    metrics.push({ label: 'Outbound Closed Won', getPlan: (q) => q.outboundClosedWon, getSq: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
+    metrics.push({ label: 'OB New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+  }
+
+  // New Product
+  if (cc.hasNewProduct) {
+    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, getSq: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
+    metrics.push({ label: 'NP New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+  }
+
+  // Expansion
+  if (cc.hasExpansion) {
+    metrics.push({ label: 'Expansion Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(planTargets.expansion.expansionRate), sqConst: formatPercent(sqTargets.expansion.expansionRate) });
+    metrics.push({ label: 'Expansion Revenue', getPlan: (q) => q.expansionRevenue, getSq: (q) => q.expansionRevenue, fmt: formatCurrencyFull });
+  }
+
+  // Churn
+  if (cc.hasChurn) {
+    metrics.push({ label: 'Churn Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, isChurn: true, planConst: formatPercent(planTargets.churn.monthlyChurnRate), sqConst: formatPercent(sqTargets.churn.monthlyChurnRate) });
+    metrics.push({ label: 'Churn Revenue', getPlan: (q) => q.churnRevenue, getSq: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true });
+  }
 
   return (
     <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
       <thead>
         <tr className="bg-gray-50 border-b border-gray-200">
-          <th className="text-left py-2 px-3 font-medium text-gray-500 w-44">Metric</th>
+          <th className="text-left py-2 px-3 font-medium text-gray-500 w-48">Metric</th>
           <th className="text-left py-2 px-2 font-medium text-gray-500 w-14"></th>
           {planQ.map((q) => (
             <th key={q.quarter} className="text-right py-2 px-3 font-medium text-gray-500">{q.quarter}</th>
@@ -526,30 +700,59 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc }: {
         </tr>
       </thead>
       <tbody>
-        {metrics.map((metric) => {
+        {metrics.map((metric, idx) => {
+          // Constant-rate rows: show Plan vs SQ as a single compact row
+          if (metric.isSecondary && metric.planConst !== undefined) {
+            const same = metric.planConst === metric.sqConst;
+            return (
+              <tr key={`${metric.label}-${idx}`} className="border-b border-gray-100">
+                <td className="py-1 px-3 pl-6 text-gray-400 italic text-[11px]">{metric.label}</td>
+                <td className="py-1 px-2 text-[10px] text-gray-400"></td>
+                <td colSpan={4} className="py-1 px-3 text-right text-[11px]">
+                  <span className="text-blue-600">Plan: {metric.planConst}</span>
+                  <span className="text-gray-300 mx-1.5">|</span>
+                  <span className="text-amber-600">SQ: {metric.sqConst}</span>
+                  {!same && (
+                    <span className={`ml-1.5 font-medium ${metric.isChurn ? 'text-red-500' : 'text-green-600'}`}>
+                      (different)
+                    </span>
+                  )}
+                </td>
+                <td></td>
+              </tr>
+            );
+          }
+
+          // Dynamic rows: Plan / SQ / Delta
           const planVals = planQ.map((q) => metric.getPlan(q));
           const sqVals = sqQ.map((q) => metric.getSq(q));
           const planTotal = planVals.reduce((s, v) => s + v, 0);
           const sqTotal = sqVals.reduce((s, v) => s + v, 0);
 
+          const bgClass = metric.isHighlight ? 'bg-blue-50' : metric.isClosedWon ? 'bg-purple-50/30' : '';
+          const labelClass = metric.isHighlight ? 'text-gray-800 font-semibold'
+            : metric.isClosedWon ? 'text-purple-900 font-medium'
+            : metric.isChurn ? 'text-red-700'
+            : 'text-gray-700 font-medium';
+
           return (
-            <React.Fragment key={metric.label}>
+            <React.Fragment key={`${metric.label}-${idx}`}>
               {/* Plan row */}
-              <tr className="border-b border-gray-50">
-                <td className="py-1 px-3 text-gray-700 font-medium" rowSpan={3}>{metric.label}</td>
+              <tr className={`border-b border-gray-50 ${bgClass}`}>
+                <td className={`py-1 px-3 ${labelClass}`} rowSpan={3}>{metric.label}</td>
                 <td className="py-1 px-2 text-[10px] text-blue-600 font-medium">Plan</td>
                 {planVals.map((v, i) => (
-                  <td key={i} className="py-1 px-3 text-right text-blue-700">{fmtCell(metric.label, v)}</td>
+                  <td key={i} className="py-1 px-3 text-right text-blue-700">{metric.fmt(v)}</td>
                 ))}
-                <td className="py-1 px-3 text-right text-blue-700 font-medium">{fmtCell(metric.label, planTotal)}</td>
+                <td className="py-1 px-3 text-right text-blue-700 font-medium">{metric.fmt(planTotal)}</td>
               </tr>
               {/* SQ row */}
-              <tr className="border-b border-gray-50">
+              <tr className={`border-b border-gray-50 ${bgClass}`}>
                 <td className="py-1 px-2 text-[10px] text-amber-600 font-medium">SQ</td>
                 {sqVals.map((v, i) => (
-                  <td key={i} className="py-1 px-3 text-right text-amber-700">{fmtCell(metric.label, v)}</td>
+                  <td key={i} className="py-1 px-3 text-right text-amber-700">{metric.fmt(v)}</td>
                 ))}
-                <td className="py-1 px-3 text-right text-amber-700 font-medium">{fmtCell(metric.label, sqTotal)}</td>
+                <td className="py-1 px-3 text-right text-amber-700 font-medium">{metric.fmt(sqTotal)}</td>
               </tr>
               {/* Delta row */}
               <tr className="border-b border-gray-200">
@@ -559,7 +762,7 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc }: {
                   const color = d > 0 ? 'text-green-600' : d < 0 ? 'text-red-500' : 'text-gray-400';
                   return (
                     <td key={i} className={`py-1 px-3 text-right text-[11px] font-medium ${color}`}>
-                      {d > 0 ? '+' : ''}{fmtCell(metric.label, d)}
+                      {d > 0 ? '+' : ''}{metric.fmt(d)}
                     </td>
                   );
                 })}
@@ -568,7 +771,7 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc }: {
                   const color = d > 0 ? 'text-green-600' : d < 0 ? 'text-red-500' : 'text-gray-400';
                   return (
                     <td className={`py-1 px-3 text-right text-[11px] font-medium ${color}`}>
-                      {d > 0 ? '+' : ''}{fmtCell(metric.label, d)}
+                      {d > 0 ? '+' : ''}{metric.fmt(d)}
                     </td>
                   );
                 })()}
