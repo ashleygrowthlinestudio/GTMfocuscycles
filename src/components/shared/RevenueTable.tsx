@@ -69,28 +69,36 @@ type TableRow = {
 function buildRows(targets?: RevenueBreakdown): TableRow[] {
   const rows: TableRow[] = [];
 
-  // ── Pipeline rows ──
+  // ── Inbound channel group (funnel order: top → bottom) ──
+  // 1. HIS Volume (top of funnel)
   rows.push(
-    { label: 'Inbound Pipeline Created', monthlyLabel: 'Inbound Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull },
-    { label: 'Outbound Pipeline Created', monthlyLabel: 'Outbound Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull },
-    { label: 'New Product Inbound Pipeline', monthlyLabel: 'NP Inbound Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull },
-    { label: 'New Product Outbound Pipeline', monthlyLabel: 'NP Outbound Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull },
-    { label: 'HIS Required', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber },
+    { label: 'HIS Volume', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber },
   );
-
-  // ── Inbound Closed Won + secondary rates + customers ──
-  rows.push(
-    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull },
-  );
+  // 2. HIS → Pipeline Rate (secondary)
   if (targets) {
     const ib = targets.newBusiness.inbound;
     rows.push(
-      { label: 'ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
       { label: 'HIS → Pipeline Rate', getMonthly: () => ib.hisToPipelineRate, getQuarterly: () => ib.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+    );
+  }
+  // 3. Qualified Pipeline Created $
+  rows.push(
+    { label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qualified Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull },
+  );
+  // 4-6. Win Rate, ACV, Sales Cycle (secondary)
+  if (targets) {
+    const ib = targets.newBusiness.inbound;
+    rows.push(
+      { label: 'Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
     );
   }
+  // 7. Inbound Closed Won $
+  rows.push(
+    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull },
+  );
+  // 8. Inbound New Customers
   rows.push(
     {
       label: 'Inbound New Customers',
@@ -100,18 +108,25 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── Outbound Closed Won + secondary rates + customers ──
+  // ── Outbound channel group (funnel order) ──
+  // 1. Qualified Pipeline Created $
   rows.push(
-    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qualified Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull },
   );
+  // 2-4. Win Rate, ACV, Sales Cycle (secondary)
   if (targets) {
     const ob = targets.newBusiness.outbound;
     rows.push(
-      { label: 'ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Win Rate', getMonthly: () => ob.winRate, getQuarterly: () => ob.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
     );
   }
+  // 5. Outbound Closed Won $
+  rows.push(
+    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull },
+  );
+  // 6. Outbound New Customers
   rows.push(
     {
       label: 'Outbound New Customers',
@@ -121,19 +136,30 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── New Product Inbound Won + secondary rates + customers ──
+  // ── New Product Inbound group (same order as Inbound) ──
   rows.push(
-    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS Volume', getMonthly: (m) => m.newProductHisRequired, getQuarterly: (q) => q.newProductHisRequired, fmt: formatNumber },
   );
   if (targets) {
     const npIb = targets.newProduct.inbound;
     rows.push(
-      { label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
       { label: 'HIS → Pipeline Rate', getMonthly: () => npIb.hisToPipelineRate, getQuarterly: () => npIb.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+    );
+  }
+  rows.push(
+    { label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull },
+  );
+  if (targets) {
+    const npIb = targets.newProduct.inbound;
+    rows.push(
+      { label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
     );
   }
+  rows.push(
+    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull },
+  );
   rows.push(
     {
       label: 'New Product Inbound Customers',
@@ -144,18 +170,21 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── New Product Outbound Won + secondary rates + customers ──
+  // ── New Product Outbound group (same order as Outbound) ──
   rows.push(
-    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'NP Outbound Qualified Pipeline $', monthlyLabel: 'NP OB Qual. Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull },
   );
   if (targets) {
     const npOb = targets.newProduct.outbound;
     rows.push(
-      { label: 'ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Win Rate', getMonthly: () => npOb.winRate, getQuarterly: () => npOb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
       { label: 'Sales Cycle', getMonthly: () => npOb.salesCycleMonths, getQuarterly: () => npOb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
     );
   }
+  rows.push(
+    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull },
+  );
   rows.push(
     {
       label: 'New Product Outbound Customers',
@@ -166,15 +195,15 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── Expansion + rate + customers ──
-  rows.push(
-    { label: 'Expansion', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull },
-  );
+  // ── Expansion group (rate first, then revenue, then customers) ──
   if (targets) {
     rows.push(
       { label: 'Expansion Rate', getMonthly: () => targets.expansion.expansionRate, getQuarterly: () => targets.expansion.expansionRate, fmt: formatPercent, isSecondary: true, isConstant: true },
     );
   }
+  rows.push(
+    { label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull },
+  );
   rows.push(
     {
       label: 'Expansion Customers',
@@ -190,15 +219,15 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── Churn + rate + churned customers ──
-  rows.push(
-    { label: 'Churn', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true },
-  );
+  // ── Churn group (rate first, then revenue, then customers) ──
   if (targets) {
     rows.push(
       { label: 'Churn Rate', getMonthly: () => targets.churn.monthlyChurnRate, getQuarterly: () => targets.churn.monthlyChurnRate, fmt: formatPercent, isSecondary: true, isConstant: true, isChurn: true },
     );
   }
+  rows.push(
+    { label: 'Churn Revenue', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true },
+  );
   rows.push(
     {
       label: 'Churned Customers',
