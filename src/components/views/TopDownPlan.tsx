@@ -3,9 +3,9 @@
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import { runModel, applyChannelConfig } from '@/lib/engine';
-import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber } from '@/lib/format';
+import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
-import type { RampConfig, RevenueBreakdown, ChannelConfig } from '@/lib/types';
+import type { RampConfig, MonthlyResult, QuarterlyResult, RevenueBreakdown, ChannelConfig } from '@/lib/types';
 
 const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 
@@ -18,11 +18,6 @@ export default function TopDownPlan() {
     [plan.targets, cc],
   );
 
-  const effectiveHistorical = useMemo(
-    () => applyChannelConfig(plan.historical, cc, 'historical'),
-    [plan.historical, cc],
-  );
-
   const model = useMemo(
     () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
     [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
@@ -31,7 +26,6 @@ export default function TopDownPlan() {
   const projectedEnd = model.endingARR;
   const gap = plan.targetARR - projectedEnd;
 
-  // Average ACV across active channels for deal count calculation
   const averageACV = useMemo(() => {
     const acvs: number[] = [];
     if (cc.hasInbound && plan.targets.newBusiness.inbound.acv > 0) acvs.push(plan.targets.newBusiness.inbound.acv);
@@ -67,41 +61,365 @@ export default function TopDownPlan() {
         averageACV={averageACV}
       />
 
-      {/* Walk the Math */}
-      <WalkTheMath
+      {/* Walk the Math — spreadsheet view */}
+      <WalkTheMathSheet
+        monthly={model.monthly}
+        quarterly={model.quarterly}
         targets={effectiveTargets}
-        historical={effectiveHistorical}
         cc={cc}
-        model={model}
       />
     </div>
   );
 }
 
-/* ── Walk the Math Section ─────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Walk the Math — Spreadsheet-style expandable section
+   ═══════════════════════════════════════════════════════════════ */
 
-function WalkTheMath({
+type SheetRow = {
+  label: string;
+  getMonthly: (m: MonthlyResult, idx: number) => number;
+  getQuarterly: (q: QuarterlyResult) => number;
+  fmt: (v: number) => string;
+  isChurn?: boolean;
+  isPositive?: boolean;
+};
+
+type SheetSection = {
+  title: string;
+  rows: SheetRow[];
+  isChurnSection?: boolean;
+};
+
+function buildSections(targets: RevenueBreakdown, cc: ChannelConfig): SheetSection[] {
+  const sections: SheetSection[] = [];
+
+  // ── Inbound Core ──
+  if (cc.hasInbound) {
+    const ib = targets.newBusiness.inbound;
+    sections.push({
+      title: 'Inbound — Core Business',
+      rows: [
+        {
+          label: 'Closed Won $',
+          getMonthly: (m) => m.inboundClosedWon,
+          getQuarterly: (q) => q.inboundClosedWon,
+          fmt: formatCurrencyFull,
+          isPositive: true,
+        },
+        {
+          label: 'Closed Won #',
+          getMonthly: (m) => m.inboundDeals,
+          getQuarterly: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0),
+          fmt: formatNumber,
+        },
+        {
+          label: 'ACV',
+          getMonthly: () => ib.acv,
+          getQuarterly: () => ib.acv,
+          fmt: formatCurrencyFull,
+        },
+        {
+          label: 'Win Rate',
+          getMonthly: () => ib.winRate,
+          getQuarterly: () => ib.winRate,
+          fmt: formatPercent,
+        },
+        {
+          label: 'Sales Cycle',
+          getMonthly: () => ib.salesCycleMonths,
+          getQuarterly: () => ib.salesCycleMonths,
+          fmt: (v) => `${v} mo`,
+        },
+        {
+          label: 'Pipeline Created $',
+          getMonthly: (m) => m.inboundPipelineCreated,
+          getQuarterly: (q) => q.inboundPipelineCreated,
+          fmt: formatCurrencyFull,
+        },
+        {
+          label: 'HIS Volume',
+          getMonthly: (m) => m.hisRequired,
+          getQuarterly: (q) => q.hisRequired,
+          fmt: formatNumber,
+        },
+        {
+          label: 'HIS → Pipeline Rate',
+          getMonthly: () => ib.hisToPipelineRate,
+          getQuarterly: () => ib.hisToPipelineRate,
+          fmt: formatPercent,
+        },
+        {
+          label: 'Pipeline → Closed Won Rate',
+          getMonthly: () => ib.winRate,
+          getQuarterly: () => ib.winRate,
+          fmt: formatPercent,
+        },
+        {
+          label: 'Est. CAC / Spend *',
+          getMonthly: (m) => m.inboundPipelineCreated * 0.15,
+          getQuarterly: (q) => q.inboundPipelineCreated * 0.15,
+          fmt: formatCurrencyFull,
+        },
+      ],
+    });
+  }
+
+  // ── Outbound Core ──
+  if (cc.hasOutbound) {
+    const ob = targets.newBusiness.outbound;
+    sections.push({
+      title: 'Outbound — Core Business',
+      rows: [
+        {
+          label: 'Closed Won $',
+          getMonthly: (m) => m.outboundClosedWon,
+          getQuarterly: (q) => q.outboundClosedWon,
+          fmt: formatCurrencyFull,
+          isPositive: true,
+        },
+        {
+          label: 'Closed Won #',
+          getMonthly: (m) => m.outboundDeals,
+          getQuarterly: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0),
+          fmt: formatNumber,
+        },
+        {
+          label: 'ACV',
+          getMonthly: () => ob.acv,
+          getQuarterly: () => ob.acv,
+          fmt: formatCurrencyFull,
+        },
+        {
+          label: 'Win Rate',
+          getMonthly: () => ob.winRate,
+          getQuarterly: () => ob.winRate,
+          fmt: formatPercent,
+        },
+        {
+          label: 'Sales Cycle',
+          getMonthly: () => ob.salesCycleMonths,
+          getQuarterly: () => ob.salesCycleMonths,
+          fmt: (v) => `${v} mo`,
+        },
+        {
+          label: 'Pipeline Created $',
+          getMonthly: (m) => m.outboundPipelineCreated,
+          getQuarterly: (q) => q.outboundPipelineCreated,
+          fmt: formatCurrencyFull,
+        },
+        {
+          label: 'Pipeline → Closed Won Rate',
+          getMonthly: () => ob.winRate,
+          getQuarterly: () => ob.winRate,
+          fmt: formatPercent,
+        },
+        {
+          label: 'Est. CAC / Spend *',
+          getMonthly: (m) => m.outboundPipelineCreated * 0.15,
+          getQuarterly: (q) => q.outboundPipelineCreated * 0.15,
+          fmt: formatCurrencyFull,
+        },
+      ],
+    });
+  }
+
+  // ── New Product Inbound ──
+  if (cc.hasNewProduct) {
+    const npIb = targets.newProduct.inbound;
+    if (npIb.hisMonthly > 0 || npIb.acv > 0) {
+      sections.push({
+        title: 'Inbound — New Product',
+        rows: [
+          {
+            label: 'Closed Won $',
+            getMonthly: (m) => m.newProductInboundClosedWon,
+            getQuarterly: (q) => q.newProductInboundClosedWon,
+            fmt: formatCurrencyFull,
+            isPositive: true,
+          },
+          {
+            label: 'Closed Won #',
+            getMonthly: (m) => m.newProductInboundDeals,
+            getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0),
+            fmt: formatNumber,
+          },
+          {
+            label: 'ACV',
+            getMonthly: () => npIb.acv,
+            getQuarterly: () => npIb.acv,
+            fmt: formatCurrencyFull,
+          },
+          {
+            label: 'Win Rate',
+            getMonthly: () => npIb.winRate,
+            getQuarterly: () => npIb.winRate,
+            fmt: formatPercent,
+          },
+          {
+            label: 'Sales Cycle',
+            getMonthly: () => npIb.salesCycleMonths,
+            getQuarterly: () => npIb.salesCycleMonths,
+            fmt: (v) => `${v} mo`,
+          },
+          {
+            label: 'Pipeline Created $',
+            getMonthly: (m) => m.newProductInboundPipelineCreated,
+            getQuarterly: (q) => q.newProductInboundPipelineCreated,
+            fmt: formatCurrencyFull,
+          },
+          {
+            label: 'HIS Volume',
+            getMonthly: (m) => m.newProductHisRequired,
+            getQuarterly: (q) => q.newProductHisRequired,
+            fmt: formatNumber,
+          },
+          {
+            label: 'HIS → Pipeline Rate',
+            getMonthly: () => npIb.hisToPipelineRate,
+            getQuarterly: () => npIb.hisToPipelineRate,
+            fmt: formatPercent,
+          },
+          {
+            label: 'Pipeline → Closed Won Rate',
+            getMonthly: () => npIb.winRate,
+            getQuarterly: () => npIb.winRate,
+            fmt: formatPercent,
+          },
+          {
+            label: 'Est. CAC / Spend *',
+            getMonthly: (m) => m.newProductInboundPipelineCreated * 0.15,
+            getQuarterly: (q) => q.newProductInboundPipelineCreated * 0.15,
+            fmt: formatCurrencyFull,
+          },
+        ],
+      });
+    }
+
+    // ── New Product Outbound ──
+    const npOb = targets.newProduct.outbound;
+    if (npOb.pipelineMonthly > 0 || npOb.acv > 0) {
+      sections.push({
+        title: 'Outbound — New Product',
+        rows: [
+          {
+            label: 'Closed Won $',
+            getMonthly: (m) => m.newProductOutboundClosedWon,
+            getQuarterly: (q) => q.newProductOutboundClosedWon,
+            fmt: formatCurrencyFull,
+            isPositive: true,
+          },
+          {
+            label: 'Closed Won #',
+            getMonthly: (m) => m.newProductOutboundDeals,
+            getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductOutboundDeals, 0),
+            fmt: formatNumber,
+          },
+          {
+            label: 'ACV',
+            getMonthly: () => npOb.acv,
+            getQuarterly: () => npOb.acv,
+            fmt: formatCurrencyFull,
+          },
+          {
+            label: 'Win Rate',
+            getMonthly: () => npOb.winRate,
+            getQuarterly: () => npOb.winRate,
+            fmt: formatPercent,
+          },
+          {
+            label: 'Sales Cycle',
+            getMonthly: () => npOb.salesCycleMonths,
+            getQuarterly: () => npOb.salesCycleMonths,
+            fmt: (v) => `${v} mo`,
+          },
+          {
+            label: 'Pipeline Created $',
+            getMonthly: (m) => m.newProductOutboundPipelineCreated,
+            getQuarterly: (q) => q.newProductOutboundPipelineCreated,
+            fmt: formatCurrencyFull,
+          },
+          {
+            label: 'Pipeline → Closed Won Rate',
+            getMonthly: () => npOb.winRate,
+            getQuarterly: () => npOb.winRate,
+            fmt: formatPercent,
+          },
+          {
+            label: 'Est. CAC / Spend *',
+            getMonthly: (m) => m.newProductOutboundPipelineCreated * 0.15,
+            getQuarterly: (q) => q.newProductOutboundPipelineCreated * 0.15,
+            fmt: formatCurrencyFull,
+          },
+        ],
+      });
+    }
+  }
+
+  // ── Expansion ──
+  if (cc.hasExpansion) {
+    sections.push({
+      title: 'Expansion',
+      rows: [
+        {
+          label: 'Expansion Revenue $',
+          getMonthly: (m) => m.expansionRevenue,
+          getQuarterly: (q) => q.expansionRevenue,
+          fmt: formatCurrencyFull,
+          isPositive: true,
+        },
+        {
+          label: 'Monthly Rate',
+          getMonthly: () => targets.expansion.expansionRate,
+          getQuarterly: () => targets.expansion.expansionRate,
+          fmt: formatPercent,
+        },
+      ],
+    });
+  }
+
+  // ── Churn ──
+  if (cc.hasChurn) {
+    sections.push({
+      title: 'Churn',
+      isChurnSection: true,
+      rows: [
+        {
+          label: 'Churn Revenue $',
+          getMonthly: (m) => m.churnRevenue,
+          getQuarterly: (q) => q.churnRevenue,
+          fmt: formatCurrencyFull,
+          isChurn: true,
+        },
+        {
+          label: 'Monthly Rate',
+          getMonthly: () => targets.churn.monthlyChurnRate,
+          getQuarterly: () => targets.churn.monthlyChurnRate,
+          fmt: formatPercent,
+          isChurn: true,
+        },
+      ],
+    });
+  }
+
+  return sections;
+}
+
+function WalkTheMathSheet({
+  monthly,
+  quarterly,
   targets,
-  historical,
   cc,
-  model,
 }: {
+  monthly: MonthlyResult[];
+  quarterly: QuarterlyResult[];
   targets: RevenueBreakdown;
-  historical: RevenueBreakdown;
   cc: ChannelConfig;
-  model: { monthly: { inboundClosedWon: number; outboundClosedWon: number; newProductInboundClosedWon: number; newProductOutboundClosedWon: number; expansionRevenue: number; churnRevenue: number }[] };
 }) {
   const [open, setOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'quarterly' | 'monthly'>('quarterly');
 
-  // Sum annual totals from model
-  const annual = useMemo(() => ({
-    inbound: model.monthly.reduce((s, m) => s + m.inboundClosedWon, 0),
-    outbound: model.monthly.reduce((s, m) => s + m.outboundClosedWon, 0),
-    npInbound: model.monthly.reduce((s, m) => s + m.newProductInboundClosedWon, 0),
-    npOutbound: model.monthly.reduce((s, m) => s + m.newProductOutboundClosedWon, 0),
-    expansion: model.monthly.reduce((s, m) => s + m.expansionRevenue, 0),
-    churn: model.monthly.reduce((s, m) => s + m.churnRevenue, 0),
-  }), [model]);
+  const sections = useMemo(() => buildSections(targets, cc), [targets, cc]);
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -119,227 +437,137 @@ function WalkTheMath({
       </button>
 
       {open && (
-        <div className="border-t border-gray-100 p-4 space-y-6">
-          {/* Inbound Core */}
-          {cc.hasInbound && (
-            <ChannelMathBlock
-              title="Inbound — Core Business"
-              target={{
-                hisMonthly: targets.newBusiness.inbound.hisMonthly,
-                hisToPipelineRate: targets.newBusiness.inbound.hisToPipelineRate,
-                winRate: targets.newBusiness.inbound.winRate,
-                acv: targets.newBusiness.inbound.acv,
-                salesCycleMonths: targets.newBusiness.inbound.salesCycleMonths,
-              }}
-              historical={{
-                hisMonthly: historical.newBusiness.inbound.hisMonthly,
-                hisToPipelineRate: historical.newBusiness.inbound.hisToPipelineRate,
-                winRate: historical.newBusiness.inbound.winRate,
-                acv: historical.newBusiness.inbound.acv,
-                salesCycleMonths: historical.newBusiness.inbound.salesCycleMonths,
-              }}
-              annualResult={annual.inbound}
-              type="inbound"
-            />
-          )}
-
-          {/* Outbound Core */}
-          {cc.hasOutbound && (
-            <ChannelMathBlock
-              title="Outbound — Core Business"
-              target={{
-                pipelineMonthly: targets.newBusiness.outbound.pipelineMonthly,
-                winRate: targets.newBusiness.outbound.winRate,
-                acv: targets.newBusiness.outbound.acv,
-                salesCycleMonths: targets.newBusiness.outbound.salesCycleMonths,
-              }}
-              historical={{
-                pipelineMonthly: historical.newBusiness.outbound.pipelineMonthly,
-                winRate: historical.newBusiness.outbound.winRate,
-                acv: historical.newBusiness.outbound.acv,
-                salesCycleMonths: historical.newBusiness.outbound.salesCycleMonths,
-              }}
-              annualResult={annual.outbound}
-              type="outbound"
-            />
-          )}
-
-          {/* New Product Inbound */}
-          {cc.hasNewProduct && targets.newProduct.inbound.hisMonthly > 0 && (
-            <ChannelMathBlock
-              title="Inbound — New Product"
-              target={{
-                hisMonthly: targets.newProduct.inbound.hisMonthly,
-                hisToPipelineRate: targets.newProduct.inbound.hisToPipelineRate,
-                winRate: targets.newProduct.inbound.winRate,
-                acv: targets.newProduct.inbound.acv,
-                salesCycleMonths: targets.newProduct.inbound.salesCycleMonths,
-              }}
-              historical={{
-                hisMonthly: historical.newProduct.inbound.hisMonthly,
-                hisToPipelineRate: historical.newProduct.inbound.hisToPipelineRate,
-                winRate: historical.newProduct.inbound.winRate,
-                acv: historical.newProduct.inbound.acv,
-                salesCycleMonths: historical.newProduct.inbound.salesCycleMonths,
-              }}
-              annualResult={annual.npInbound}
-              type="inbound"
-            />
-          )}
-
-          {/* New Product Outbound */}
-          {cc.hasNewProduct && targets.newProduct.outbound.pipelineMonthly > 0 && (
-            <ChannelMathBlock
-              title="Outbound — New Product"
-              target={{
-                pipelineMonthly: targets.newProduct.outbound.pipelineMonthly,
-                winRate: targets.newProduct.outbound.winRate,
-                acv: targets.newProduct.outbound.acv,
-                salesCycleMonths: targets.newProduct.outbound.salesCycleMonths,
-              }}
-              historical={{
-                pipelineMonthly: historical.newProduct.outbound.pipelineMonthly,
-                winRate: historical.newProduct.outbound.winRate,
-                acv: historical.newProduct.outbound.acv,
-                salesCycleMonths: historical.newProduct.outbound.salesCycleMonths,
-              }}
-              annualResult={annual.npOutbound}
-              type="outbound"
-            />
-          )}
-
-          {/* Expansion */}
-          {cc.hasExpansion && (
-            <div className="border border-gray-100 rounded-lg p-3">
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Expansion</h4>
-              <div className="flex items-center gap-4 text-sm text-gray-700">
-                <ComparisonBadge label="Rate" target={targets.expansion.expansionRate} historical={historical.expansion.expansionRate} format={formatPercent} higherIsBetter />
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {formatPercent(targets.expansion.expansionRate)} of ARR expands monthly
-                &rarr; <span className="font-semibold text-gray-800">{formatCurrencyFull(annual.expansion)}</span> annual expansion
-              </p>
+        <div className="border-t border-gray-100">
+          {/* View toggle */}
+          <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">Channel-by-channel breakdown</span>
+            <div className="flex gap-1 bg-gray-200 rounded-md p-0.5">
+              <button
+                onClick={() => setViewMode('quarterly')}
+                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                  viewMode === 'quarterly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Quarterly
+              </button>
+              <button
+                onClick={() => setViewMode('monthly')}
+                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                  viewMode === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Monthly
+              </button>
             </div>
-          )}
+          </div>
 
-          {/* Churn */}
-          {cc.hasChurn && (
-            <div className="border border-gray-100 rounded-lg p-3">
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Churn</h4>
-              <div className="flex items-center gap-4 text-sm text-gray-700">
-                <ComparisonBadge label="Rate" target={targets.churn.monthlyChurnRate} historical={historical.churn.monthlyChurnRate} format={formatPercent} higherIsBetter={false} />
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {formatPercent(targets.churn.monthlyChurnRate)} of ARR churns monthly
-                &rarr; <span className="font-semibold text-red-600">{formatCurrencyFull(annual.churn)}</span> annual churn
-              </p>
-            </div>
-          )}
+          {/* Spreadsheet */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left py-2 px-3 font-medium text-gray-500 sticky left-0 bg-gray-50 z-10 min-w-[200px]">
+                    Metric
+                  </th>
+                  {viewMode === 'quarterly' ? (
+                    <>
+                      {quarterly.map((q) => (
+                        <th key={q.quarter} className="text-right py-2 px-3 font-medium text-gray-500 min-w-[100px]">
+                          {q.quarter}
+                        </th>
+                      ))}
+                      <th className="text-right py-2 px-3 font-medium text-gray-500 min-w-[110px]">Annual</th>
+                    </>
+                  ) : (
+                    monthly.map((m) => (
+                      <th key={m.month} className="text-right py-2 px-2 font-medium text-gray-500 min-w-[80px]">
+                        {formatMonthName(m.month)}
+                      </th>
+                    ))
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {sections.map((section) => (
+                  <React.Fragment key={section.title}>
+                    {/* Section header */}
+                    <tr className="bg-gray-100 border-b border-gray-200">
+                      <td
+                        colSpan={viewMode === 'quarterly' ? 6 : 13}
+                        className="py-2 px-3 font-bold text-gray-700 text-xs uppercase tracking-wide sticky left-0 bg-gray-100 z-10"
+                      >
+                        {section.title}
+                      </td>
+                    </tr>
+                    {/* Data rows */}
+                    {section.rows.map((row, rowIdx) => {
+                      const isEven = rowIdx % 2 === 0;
+                      return (
+                        <tr
+                          key={`${section.title}-${row.label}`}
+                          className={`border-b border-gray-100 ${isEven ? 'bg-white' : 'bg-gray-50/60'}`}
+                        >
+                          <td className={`py-1.5 px-3 sticky left-0 z-10 ${isEven ? 'bg-white' : 'bg-gray-50'} ${row.isChurn ? 'text-red-700' : row.isPositive ? 'text-green-800 font-medium' : 'text-gray-700'}`}>
+                            {row.label}
+                          </td>
+                          {viewMode === 'quarterly' ? (
+                            <>
+                              {quarterly.map((q) => (
+                                <td
+                                  key={q.quarter}
+                                  className={`py-1.5 px-3 text-right tabular-nums ${row.isChurn ? 'text-red-600' : row.isPositive ? 'text-green-700' : 'text-gray-900'}`}
+                                >
+                                  {row.fmt(row.getQuarterly(q))}
+                                </td>
+                              ))}
+                              <td className={`py-1.5 px-3 text-right font-semibold tabular-nums ${row.isChurn ? 'text-red-600' : row.isPositive ? 'text-green-700' : 'text-gray-900'}`}>
+                                {row.fmt(annualTotal(row, quarterly))}
+                              </td>
+                            </>
+                          ) : (
+                            monthly.map((m, i) => (
+                              <td
+                                key={m.month}
+                                className={`py-1.5 px-2 text-right tabular-nums ${row.isChurn ? 'text-red-600' : row.isPositive ? 'text-green-700' : 'text-gray-900'}`}
+                              >
+                                {row.fmt(row.getMonthly(m, i))}
+                              </td>
+                            ))
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footnote */}
+          <div className="px-3 py-2 bg-gray-50 border-t border-gray-100">
+            <p className="text-[10px] text-gray-400">
+              * Est. CAC / Spend = Pipeline Created × 15% — rough placeholder estimate.
+              Constant metrics (ACV, rates, cycle) reflect target plan inputs.
+            </p>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-/* ── Channel Math Block ──────────────────────────────────── */
-
-type InboundMath = { hisMonthly: number; hisToPipelineRate: number; winRate: number; acv: number; salesCycleMonths: number };
-type OutboundMath = { pipelineMonthly: number; winRate: number; acv: number; salesCycleMonths: number };
-
-function ChannelMathBlock({
-  title,
-  target,
-  historical,
-  annualResult,
-  type,
-}: {
-  title: string;
-  target: InboundMath | OutboundMath;
-  historical: InboundMath | OutboundMath;
-  annualResult: number;
-  type: 'inbound' | 'outbound';
-}) {
-  const isInbound = type === 'inbound';
-  const t = target as InboundMath & OutboundMath;
-  const h = historical as InboundMath & OutboundMath;
-
-  return (
-    <div className="border border-gray-100 rounded-lg p-3">
-      <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">{title}</h4>
-
-      {/* Comparison table */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
-        {isInbound ? (
-          <>
-            <ComparisonBadge label="HIS / month" target={t.hisMonthly} historical={h.hisMonthly} format={formatNumber} higherIsBetter />
-            <ComparisonBadge label="HIS → Pipeline" target={t.hisToPipelineRate} historical={h.hisToPipelineRate} format={formatPercent} higherIsBetter />
-          </>
-        ) : (
-          <ComparisonBadge label="Pipeline / month" target={t.pipelineMonthly} historical={h.pipelineMonthly} format={formatCurrencyFull} higherIsBetter />
-        )}
-        <ComparisonBadge label="Win Rate" target={t.winRate} historical={h.winRate} format={formatPercent} higherIsBetter />
-        <ComparisonBadge label="ACV" target={t.acv} historical={h.acv} format={formatCurrencyFull} higherIsBetter />
-        <ComparisonBadge label="Sales Cycle" target={t.salesCycleMonths} historical={h.salesCycleMonths} format={(v) => `${v} mo`} higherIsBetter={false} />
-      </div>
-
-      {/* Walk-through formula */}
-      <div className="bg-gray-50 rounded-md p-2 text-xs text-gray-600">
-        {isInbound ? (
-          <p>
-            {formatNumber(t.hisMonthly)} HIS &times; {formatPercent(t.hisToPipelineRate)} &rarr; Pipeline
-            &times; {formatPercent(t.winRate)} win rate &times; {formatCurrencyFull(t.acv)} ACV
-            = <span className="font-semibold text-gray-800">{formatCurrencyFull(t.hisMonthly * t.hisToPipelineRate * t.winRate * t.acv)}/mo</span> closed won
-            <span className="text-gray-400 ml-1">({t.salesCycleMonths}mo cycle)</span>
-          </p>
-        ) : (
-          <p>
-            {formatCurrencyFull(t.pipelineMonthly)} pipeline/mo
-            &times; {formatPercent(t.winRate)} win rate
-            = <span className="font-semibold text-gray-800">{formatCurrencyFull(t.pipelineMonthly * t.winRate)}/mo</span> closed won
-            <span className="text-gray-400 ml-1">({t.salesCycleMonths}mo cycle)</span>
-          </p>
-        )}
-        <p className="mt-1 text-gray-500">
-          Annual projected: <span className="font-semibold text-gray-800">{formatCurrencyFull(annualResult)}</span>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ── Comparison Badge ────────────────────────────────────── */
-
-function ComparisonBadge({
-  label,
-  target,
-  historical,
-  format,
-  higherIsBetter,
-}: {
-  label: string;
-  target: number;
-  historical: number;
-  format: (v: number) => string;
-  higherIsBetter: boolean;
-}) {
-  const diff = target - historical;
-  const isBetter = higherIsBetter ? diff > 0 : diff < 0;
-  const isWorse = higherIsBetter ? diff < 0 : diff > 0;
-  const isSame = diff === 0;
-
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</span>
-      <div className="flex items-center gap-1.5">
-        <span className="text-sm font-medium text-gray-800">{format(target)}</span>
-        {!isSame && (
-          <span className={`text-[10px] px-1 py-0.5 rounded ${isBetter ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {isWorse ? 'vs ' : 'vs '}{format(historical)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
+/** Sum a row across all quarters for the annual total column */
+function annualTotal(row: SheetRow, quarterly: QuarterlyResult[]): number {
+  // For rate/constant rows, don't sum — return the value itself
+  const v0 = row.getQuarterly(quarterly[0]);
+  const v1 = row.getQuarterly(quarterly[1]);
+  if (v0 === v1 && row.label !== 'Closed Won $' && row.label !== 'Closed Won #' &&
+      row.label !== 'Pipeline Created $' && row.label !== 'HIS Volume' &&
+      row.label !== 'Est. CAC / Spend *' && row.label !== 'Expansion Revenue $' &&
+      row.label !== 'Churn Revenue $') {
+    return v0; // constant — show as-is, don't sum
+  }
+  return quarterly.reduce((s, q) => s + row.getQuarterly(q), 0);
 }
 
 /* ── Summary Card ────────────────────────────────────────── */
