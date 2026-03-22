@@ -54,7 +54,16 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
     case 'SET_DETAILED_ACTUALS':
       return { ...state, detailedActuals: action.payload };
     case 'SET_HISTORICAL_QUARTERS':
-      return { ...state, historicalQuarters: action.payload };
+      // Preserve metricNotes from previous quarters when updating
+      return {
+        ...state,
+        historicalQuarters: action.payload.map((q) => {
+          const prev = state.historicalQuarters.find(
+            (pq) => pq.year === q.year && pq.quarter === q.quarter,
+          );
+          return { ...q, metricNotes: q.metricNotes ?? prev?.metricNotes };
+        }),
+      };
     case 'SET_TARGET_ALLOCATION_MODE':
       return { ...state, targetAllocationMode: action.payload };
     case 'SET_TARGET_ALLOCATIONS':

@@ -232,6 +232,8 @@ export interface QuarterlyHistoricalData {
   newProductSalesCycle: number;
   newProductClosedWon: number;
   newProductNewCustomers: number;
+  // Source / Notes per metric
+  metricNotes?: Record<string, string>;
 }
 
 // ── Target allocation ────────────────────────────────────────

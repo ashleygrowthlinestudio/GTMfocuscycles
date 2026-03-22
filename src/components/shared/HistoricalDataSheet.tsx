@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import type { QuarterlyHistoricalData, ChannelConfig, Month } from '@/lib/types';
 
 // ── Quarter label generation ─────────────────────────────────
@@ -178,6 +178,9 @@ interface HistoricalDataSheetProps {
 export default function HistoricalDataSheet({ historicalQuarters, channelConfig, planYear, onChange }: HistoricalDataSheetProps) {
   const slots = useMemo(() => generateQuarterSlots(planYear), [planYear]);
 
+  // Track which metric note is being edited
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+
   // Ensure we have 8 quarter entries (backfill any missing)
   const quarters = useMemo(() => {
     return slots.map((slot) => {
@@ -239,6 +242,26 @@ export default function HistoricalDataSheet({ historicalQuarters, channelConfig,
     [quarters, onChange],
   );
 
+  // Get a metric note (read from first quarter's metricNotes)
+  const getNote = useCallback(
+    (field: string): string => {
+      return quarters[0]?.metricNotes?.[field] ?? '';
+    },
+    [quarters],
+  );
+
+  // Set a metric note (write to all quarters' metricNotes to keep in sync)
+  const handleNoteChange = useCallback(
+    (field: string, note: string) => {
+      const updated = quarters.map((q) => ({
+        ...q,
+        metricNotes: { ...(q.metricNotes ?? {}), [field]: note },
+      }));
+      onChange(updated);
+    },
+    [quarters, onChange],
+  );
+
   // Completeness badge
   const badgeColor =
     filledCount >= 8 ? 'bg-green-100 text-green-800 border-green-300' :
@@ -249,6 +272,8 @@ export default function HistoricalDataSheet({ historicalQuarters, channelConfig,
     filledCount >= 8 ? 'Complete — 8/8 quarters' :
     filledCount >= 4 ? `${filledCount}/8 quarters filled` :
     `${filledCount}/8 — Add at least 4 quarters for accurate projections`;
+
+  const colCount = quarters.length + 2; // metric label + 8 quarters + trend
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -313,7 +338,7 @@ export default function HistoricalDataSheet({ historicalQuarters, channelConfig,
                 {/* Section header row */}
                 <tr>
                   <td
-                    colSpan={quarters.length + 2}
+                    colSpan={colCount}
                     className="py-2 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-gray-50 border-t border-b border-gray-200"
                   >
                     {SECTION_LABELS[sec.section]}
@@ -322,35 +347,91 @@ export default function HistoricalDataSheet({ historicalQuarters, channelConfig,
                 {/* Metric rows */}
                 {sec.rows.map((row) => {
                   const trend = calcTrend(quarters, row.field);
+                  const note = getNote(row.field);
+                  const isEditing = editingNote === row.field;
+
                   return (
-                    <tr key={row.field} className="border-b border-gray-100 hover:bg-blue-50/30">
-                      <td className="py-1 px-2 text-gray-700 font-medium sticky left-0 bg-white z-10 whitespace-nowrap">
-                        <span className="flex items-center gap-1">
-                          {row.label}
-                          {row.type === 'currency' && <span className="text-gray-400 text-[9px]">$</span>}
-                          {row.type === 'percent' && <span className="text-gray-400 text-[9px]">%</span>}
-                          {row.type === 'months' && <span className="text-gray-400 text-[9px]">mo</span>}
-                        </span>
-                      </td>
-                      {quarters.map((q, qi) => (
-                        <td key={q.quarterLabel} className="py-0.5 px-0.5">
-                          <input
-                            type="number"
-                            value={displayValue(q[row.field] as number, row.type)}
-                            onChange={(e) => handleCellChange(qi, row.field, e.target.value, row.type)}
-                            placeholder="—"
-                            step={inputStep(row.type)}
-                            className="w-full text-right rounded border border-gray-200 py-1 px-1.5 text-xs text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white hover:border-gray-300 transition-colors placeholder:text-gray-300"
-                          />
+                    <React.Fragment key={row.field}>
+                      <tr className="border-b border-gray-100 hover:bg-blue-50/30">
+                        <td className="py-1 px-2 text-gray-700 font-medium sticky left-0 bg-white z-10 whitespace-nowrap">
+                          <span className="flex items-center gap-1">
+                            {row.label}
+                            {row.type === 'currency' && <span className="text-gray-400 text-[9px]">$</span>}
+                            {row.type === 'percent' && <span className="text-gray-400 text-[9px]">%</span>}
+                            {row.type === 'months' && <span className="text-gray-400 text-[9px]">mo</span>}
+                            {/* Add source / note toggle */}
+                            {!isEditing && !note && (
+                              <button
+                                onClick={() => setEditingNote(row.field)}
+                                className="ml-1 text-[9px] text-gray-300 hover:text-gray-500 transition-colors"
+                              >
+                                + source
+                              </button>
+                            )}
+                            {!isEditing && note && (
+                              <button
+                                onClick={() => setEditingNote(row.field)}
+                                className="ml-1 flex items-center gap-0.5 text-[9px] text-gray-400 hover:text-gray-600 transition-colors max-w-[140px]"
+                                title={note}
+                              >
+                                <span className="italic truncate">{note.length > 40 ? note.slice(0, 40) + '...' : note}</span>
+                                <svg className="w-2.5 h-2.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+                            )}
+                          </span>
                         </td>
-                      ))}
-                      <td className="py-1 px-2 text-center">
-                        {trend === 'up' && <span className="text-green-600 font-bold">↑</span>}
-                        {trend === 'down' && <span className="text-red-500 font-bold">↓</span>}
-                        {trend === 'flat' && <span className="text-gray-400">→</span>}
-                        {trend === null && <span className="text-gray-300">—</span>}
-                      </td>
-                    </tr>
+                        {quarters.map((q, qi) => (
+                          <td key={q.quarterLabel} className="py-0.5 px-0.5">
+                            <input
+                              type="number"
+                              value={displayValue(q[row.field] as number, row.type)}
+                              onChange={(e) => handleCellChange(qi, row.field, e.target.value, row.type)}
+                              placeholder="—"
+                              step={inputStep(row.type)}
+                              className="w-full text-right rounded border border-gray-200 py-1 px-1.5 text-xs text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white hover:border-gray-300 transition-colors placeholder:text-gray-300"
+                            />
+                          </td>
+                        ))}
+                        <td className="py-1 px-2 text-center">
+                          {trend === 'up' && <span className="text-green-600 font-bold">↑</span>}
+                          {trend === 'down' && <span className="text-red-500 font-bold">↓</span>}
+                          {trend === 'flat' && <span className="text-gray-400">→</span>}
+                          {trend === null && <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                      {/* Inline note editing row */}
+                      {isEditing && (
+                        <tr>
+                          <td colSpan={colCount} className="py-0.5 px-2">
+                            <div className="flex items-center gap-1.5 pl-1">
+                              <svg className="w-3 h-3 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                              </svg>
+                              <input
+                                type="text"
+                                value={note}
+                                onChange={(e) => handleNoteChange(row.field, e.target.value)}
+                                onBlur={() => setEditingNote(null)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setEditingNote(null); }}
+                                autoFocus
+                                placeholder="e.g. Pulled from HubSpot report, Q1 2024 board deck, Salesforce pipeline report..."
+                                className="flex-1 text-[10px] text-gray-500 italic border-b border-gray-200 focus:border-blue-400 outline-none py-0.5 bg-transparent placeholder:text-gray-300"
+                              />
+                              {note && (
+                                <button
+                                  onMouseDown={(e) => { e.preventDefault(); handleNoteChange(row.field, ''); setEditingNote(null); }}
+                                  className="text-[9px] text-gray-300 hover:text-red-400 flex-shrink-0"
+                                >
+                                  clear
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </React.Fragment>
