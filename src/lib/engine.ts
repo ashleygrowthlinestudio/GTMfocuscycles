@@ -12,6 +12,7 @@ import type {
   Quarter,
   InboundFunnelInputs,
   OutboundFunnelInputs,
+  MonthlyActuals,
 } from './types';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -336,6 +337,110 @@ export function runModel(
     quarterly,
     endingARR: monthly[11].cumulativeARR,
     totalNewARRAdded: monthly.reduce((s, m) => s + m.totalNewARR, 0),
+  };
+}
+
+// ── Run model with actuals for in-year reforecast ────────────
+
+function averageActualField(actuals: MonthlyActuals[], field: keyof MonthlyActuals): number {
+  const values = actuals.map((a) => a[field] as number).filter((v) => v > 0);
+  if (values.length === 0) return 0;
+  return values.reduce((s, v) => s + v, 0) / values.length;
+}
+
+export function runModelWithActuals(
+  inputs: RevenueBreakdown,
+  seasonality: SeasonalityWeights,
+  ramp: RampConfig,
+  startingARR: number,
+  existingPipeline: ExistingPipeline,
+  actuals: MonthlyActuals[],
+  currentMonth: Month,
+): ModelRun {
+  // Sort actuals by month for reliable lookup
+  const actualsByMonth = new Map<number, MonthlyActuals>();
+  for (const a of actuals) actualsByMonth.set(a.month, a);
+
+  // Recalibrate rates from actuals averages
+  const avgIbWinRate = averageActualField(actuals, 'inboundWinRate');
+  const avgObWinRate = averageActualField(actuals, 'outboundWinRate');
+  const avgHisToPipe = averageActualField(actuals, 'hisToPipelineRate');
+  const avgIbAcv = averageActualField(actuals, 'inboundACV');
+  const avgObAcv = averageActualField(actuals, 'outboundACV');
+
+  // Build recalibrated inputs for future months
+  const recalibrated: RevenueBreakdown = JSON.parse(JSON.stringify(inputs));
+  if (avgIbWinRate > 0) recalibrated.newBusiness.inbound.winRate = avgIbWinRate;
+  if (avgObWinRate > 0) recalibrated.newBusiness.outbound.winRate = avgObWinRate;
+  if (avgHisToPipe > 0) recalibrated.newBusiness.inbound.hisToPipelineRate = avgHisToPipe;
+  if (avgIbAcv > 0) recalibrated.newBusiness.inbound.acv = avgIbAcv;
+  if (avgObAcv > 0) recalibrated.newBusiness.outbound.acv = avgObAcv;
+
+  // Run the normal model with recalibrated rates for the waterfall pipeline arrays
+  const projected = calculateMonthlyRevenue(recalibrated, seasonality, ramp, startingARR, existingPipeline);
+
+  // Now overlay actuals for completed months and recalculate cumulative ARR
+  const results: MonthlyResult[] = [];
+  let currentARR = startingARR;
+
+  for (let i = 0; i < 12; i++) {
+    const month = (i + 1) as Month;
+    const actual = actualsByMonth.get(month);
+
+    if (month < currentMonth && actual) {
+      // Use actuals for completed months
+      const totalNewARR =
+        actual.inboundClosedWon + actual.outboundClosedWon +
+        actual.newProductInboundClosedWon + actual.newProductOutboundClosedWon +
+        actual.expansionRevenue + actual.churnRevenue;
+
+      currentARR += totalNewARR;
+
+      const ibAcv = actual.inboundACV || inputs.newBusiness.inbound.acv || 1;
+      const obAcv = actual.outboundACV || inputs.newBusiness.outbound.acv || 1;
+
+      results.push({
+        month,
+        inboundPipelineCreated: actual.inboundPipelineCreated,
+        outboundPipelineCreated: actual.outboundPipelineCreated,
+        newProductInboundPipelineCreated: projected[i].newProductInboundPipelineCreated,
+        newProductOutboundPipelineCreated: projected[i].newProductOutboundPipelineCreated,
+        hisRequired: actual.hisToPipelineRate > 0 && ibAcv > 0
+          ? actual.inboundPipelineCreated / (actual.hisToPipelineRate * ibAcv)
+          : projected[i].hisRequired,
+        newProductHisRequired: projected[i].newProductHisRequired,
+        inboundClosedWon: actual.inboundClosedWon,
+        outboundClosedWon: actual.outboundClosedWon,
+        newProductInboundClosedWon: actual.newProductInboundClosedWon,
+        newProductOutboundClosedWon: actual.newProductOutboundClosedWon,
+        expansionRevenue: actual.expansionRevenue,
+        churnRevenue: actual.churnRevenue,
+        totalNewARR,
+        cumulativeARR: currentARR,
+        inboundDeals: ibAcv > 0 ? actual.inboundClosedWon / ibAcv : 0,
+        outboundDeals: obAcv > 0 ? actual.outboundClosedWon / obAcv : 0,
+        newProductInboundDeals: projected[i].newProductInboundDeals,
+        newProductOutboundDeals: projected[i].newProductOutboundDeals,
+      });
+    } else {
+      // Use projected values but rebase cumulative ARR from actuals
+      const p = projected[i];
+      const totalNewARR = p.totalNewARR;
+      currentARR += totalNewARR;
+
+      results.push({
+        ...p,
+        cumulativeARR: currentARR,
+      });
+    }
+  }
+
+  const quarterly = rollUpToQuarters(results);
+  return {
+    monthly: results,
+    quarterly,
+    endingARR: results[11].cumulativeARR,
+    totalNewARRAdded: results.reduce((s, m) => s + m.totalNewARR, 0),
   };
 }
 

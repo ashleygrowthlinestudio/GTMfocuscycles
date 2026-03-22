@@ -13,43 +13,59 @@ interface RevenueTableProps {
   planningMode?: PlanningMode;
   currentMonth?: Month;
   detailedActuals?: MonthlyActuals[];
+  planMonthly?: MonthlyResult[];
+  planQuarterly?: QuarterlyResult[];
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
+  const [showVariance, setShowVariance] = useState(false);
   const isInYear = planningMode === 'in-year';
+  const hasVarianceData = !!(planMonthly && planQuarterly);
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-gray-50">
         <h3 className="text-sm font-semibold text-gray-700">{label || 'Revenue Projections'}</h3>
-        <div className="flex gap-1 bg-gray-200 rounded-md p-0.5">
-          <button
-            onClick={() => setViewMode('quarterly')}
-            className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-              viewMode === 'quarterly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Quarterly
-          </button>
-          <button
-            onClick={() => setViewMode('monthly')}
-            className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-              viewMode === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Monthly
-          </button>
+        <div className="flex items-center gap-3">
+          {hasVarianceData && (
+            <button
+              onClick={() => setShowVariance(!showVariance)}
+              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                showVariance ? 'bg-amber-100 text-amber-800 shadow-sm' : 'text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              {showVariance ? 'Hide Variance' : 'Show Variance'}
+            </button>
+          )}
+          <div className="flex gap-1 bg-gray-200 rounded-md p-0.5">
+            <button
+              onClick={() => setViewMode('quarterly')}
+              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                viewMode === 'quarterly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Quarterly
+            </button>
+            <button
+              onClick={() => setViewMode('monthly')}
+              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                viewMode === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Monthly
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="overflow-x-auto">
         {viewMode === 'quarterly' ? (
-          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} />
+          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} />
         )}
       </div>
     </div>
@@ -68,6 +84,7 @@ type TableRow = {
   isChurn?: boolean;
   isHighlight?: boolean;
   isClosedWon?: boolean; // purple highlight for closed-won rows
+  isPurple?: boolean;    // purple highlight for expansion/churn revenue
   isConstant?: boolean;  // don't sum for total/annual column
 };
 
@@ -207,7 +224,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     );
   }
   rows.push(
-    { label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull },
+    { label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true },
   );
   rows.push(
     {
@@ -231,7 +248,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     );
   }
   rows.push(
-    { label: 'Churn Revenue', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true },
+    { label: 'Churn Revenue', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true, isPurple: true },
   );
   rows.push(
     {
@@ -267,32 +284,21 @@ function ProjBadge() {
   return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 leading-none align-middle">PROJ</span>;
 }
 
-function getActualForMonth(month: Month, detailedActuals?: MonthlyActuals[]): MonthlyActuals | undefined {
-  return detailedActuals?.find((a) => a.month === month);
-}
+/* ── Variance formatting ─────────────────────────────────── */
 
-/** Map a TableRow getter key to the corresponding MonthlyActuals field */
-function getActualValue(row: TableRow, actual: MonthlyActuals): number | undefined {
-  const map: Record<string, keyof MonthlyActuals> = {
-    'Inbound Closed Won': 'inboundClosedWon',
-    'Outbound Closed Won': 'outboundClosedWon',
-    'New Product Inbound Won': 'newProductInboundClosedWon',
-    'New Product Outbound Won': 'newProductOutboundClosedWon',
-    'Inbound Qualified Pipeline $': 'inboundPipelineCreated',
-    'Outbound Qualified Pipeline $': 'outboundPipelineCreated',
-    'Expansion Revenue': 'expansionRevenue',
-    'Churn Revenue': 'churnRevenue',
-    'Total New ARR': 'totalNewARR',
-    'Cumulative ARR': 'cumulativeARR',
+function formatVariance(diff: number, fmt: (v: number) => string): { text: string; color: string } {
+  if (diff === 0) return { text: 'vs Plan: $0', color: 'text-gray-400' };
+  const sign = diff > 0 ? '+' : '-';
+  const formatted = fmt(Math.abs(diff));
+  return {
+    text: `vs Plan: ${sign}${formatted}`,
+    color: diff > 0 ? 'text-green-600' : 'text-red-500',
   };
-  const field = map[row.label];
-  if (field) return actual[field] as number;
-  return undefined;
 }
 
 /* ── Quarterly View ───────────────────────────────────────── */
 
-function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[] }) {
+function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[] }) {
   const rows = useMemo(() => buildRows(targets), [targets]);
   const cm = currentMonth ?? 1;
 
@@ -314,6 +320,13 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
     );
   }
 
+  // Check if a quarter has any completed months
+  function quarterHasActual(qi: number): boolean {
+    const months = quarterly[qi]?.months;
+    if (!months) return false;
+    return months.some((m) => m.month < cm);
+  }
+
   return (
     <table className="w-full text-xs">
       <thead>
@@ -330,47 +343,49 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
       </thead>
       <tbody>
         {rows.map((row, idx) => {
-          // For in-year mode, blend actuals into quarterly values
-          let quarterValues: number[] = quarterly.map((q) => row.getQuarterly(q));
-
-          if (isInYear && !row.isSecondary && !row.isConstant) {
-            quarterValues = quarterly.map((q) => {
-              const months = q.months;
-              return months.reduce((sum, m) => {
-                if (m.month < cm) {
-                  const actual = getActualForMonth(m.month as Month, detailedActuals);
-                  if (actual) {
-                    const av = getActualValue(row, actual);
-                    if (av !== undefined) return sum + av;
-                  }
-                }
-                return sum + row.getMonthly(m);
-              }, 0);
-            });
-          }
+          const quarterValues: number[] = quarterly.map((q) => row.getQuarterly(q));
 
           const total = row.isConstant
             ? quarterValues[0]
             : quarterValues.reduce((s, v) => s + v, 0);
 
+          // Plan values for variance
+          const planQuarterValues = planQuarterly ? planQuarterly.map((q) => row.getQuarterly(q)) : null;
+
           return (
-            <tr
-              key={`${row.label}-${idx}`}
-              className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50 font-semibold' : ''}`}
-            >
-              <td className={cellLabelClass(row)}>{row.label}</td>
-              <td className="py-1.5 px-3 text-right text-gray-400">
-                {row.isSecondary ? '' : '—'}
-              </td>
-              {quarterValues.map((val, qi) => (
-                <td key={quarterly[qi].quarter} className={cellValueClass(row)}>
-                  {row.fmt(val)}
+            <React.Fragment key={`${row.label}-${idx}`}>
+              <tr
+                className={`border-b border-gray-100 ${rowBgClass(row)}`}
+              >
+                <td className={cellLabelClass(row)}>{row.label}</td>
+                <td className="py-1.5 px-3 text-right text-gray-400">
+                  {row.isSecondary ? '' : '—'}
                 </td>
-              ))}
-              <td className={`${cellValueClass(row)} font-medium`}>
-                {row.fmt(total)}
-              </td>
-            </tr>
+                {quarterValues.map((val, qi) => (
+                  <td key={quarterly[qi].quarter} className={cellValueClass(row)}>
+                    {row.fmt(val)}
+                  </td>
+                ))}
+                <td className={`${cellValueClass(row)} font-medium`}>
+                  {row.fmt(total)}
+                </td>
+              </tr>
+              {showVariance && planQuarterValues && !row.isSecondary && !row.isConstant && (
+                <tr className="border-b border-gray-50">
+                  <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px]">vs Plan</td>
+                  <td className="py-0.5 px-3"></td>
+                  {quarterValues.map((val, qi) => {
+                    if (!quarterHasActual(qi)) {
+                      return <td key={`var-${qi}`} className="py-0.5 px-3 text-right text-gray-300 italic text-[10px]">—</td>;
+                    }
+                    const diff = val - planQuarterValues[qi];
+                    const v = formatVariance(diff, row.fmt);
+                    return <td key={`var-${qi}`} className={`py-0.5 px-3 text-right italic text-[10px] ${v.color}`}>{v.text}</td>;
+                  })}
+                  <td className="py-0.5 px-3 text-right text-gray-300 italic text-[10px]">—</td>
+                </tr>
+              )}
+            </React.Fragment>
           );
         })}
         {/* Ending ARR */}
@@ -393,7 +408,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[] }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[] }) {
   const rows = useMemo(() => {
     const base = buildRows(targets);
     // Add Cumulative ARR at end
@@ -420,29 +435,35 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
       </thead>
       <tbody>
         {rows.map((row, idx) => (
-          <tr
-            key={`${row.monthlyLabel || row.label}-${idx}`}
-            className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50 font-semibold' : ''}`}
-          >
-            <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
-              {row.monthlyLabel || row.label}
-            </td>
-            {monthly.map((m) => {
-              let value = row.getMonthly(m);
-              if (isInYear && m.month < cm && !row.isSecondary && !row.isConstant) {
-                const actual = getActualForMonth(m.month as Month, detailedActuals);
-                if (actual) {
-                  const av = getActualValue(row, actual);
-                  if (av !== undefined) value = av;
-                }
-              }
-              return (
+          <React.Fragment key={`${row.monthlyLabel || row.label}-${idx}`}>
+            <tr
+              className={`border-b border-gray-100 ${rowBgClass(row)}`}
+            >
+              <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
+                {row.monthlyLabel || row.label}
+              </td>
+              {monthly.map((m) => (
                 <td key={m.month} className={cellValueClass(row, true)}>
-                  {row.fmt(value)}
+                  {row.fmt(row.getMonthly(m))}
                 </td>
-              );
-            })}
-          </tr>
+              ))}
+            </tr>
+            {showVariance && planMonthly && !row.isSecondary && !row.isConstant && (
+              <tr className="border-b border-gray-50">
+                <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px] sticky left-0 bg-white">vs Plan</td>
+                {monthly.map((m, mi) => {
+                  if (m.month >= cm) {
+                    return <td key={`var-${mi}`} className="py-0.5 px-2 text-right text-gray-300 italic text-[10px]">—</td>;
+                  }
+                  const actual = row.getMonthly(m);
+                  const plan = planMonthly[mi] ? row.getMonthly(planMonthly[mi]) : 0;
+                  const diff = actual - plan;
+                  const v = formatVariance(diff, row.fmt);
+                  return <td key={`var-${mi}`} className={`py-0.5 px-2 text-right italic text-[10px] ${v.color}`}>{v.text}</td>;
+                })}
+              </tr>
+            )}
+          </React.Fragment>
         ))}
       </tbody>
     </table>
@@ -451,10 +472,16 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
 
 /* ── Styling helpers ──────────────────────────────────────── */
 
+function rowBgClass(row: TableRow): string {
+  if (row.isHighlight) return 'bg-blue-50 font-semibold';
+  if (row.isClosedWon || row.isPurple) return 'bg-purple-50 font-semibold';
+  return '';
+}
+
 function cellLabelClass(row: TableRow): string {
   if (row.isSecondary) return 'py-1 px-3 pl-6 text-gray-400 italic text-[11px]';
   if (row.isHighlight) return 'py-1.5 px-3 text-gray-700';
-  if (row.isClosedWon) return 'py-1.5 px-3 text-purple-900';
+  if (row.isClosedWon || row.isPurple) return 'py-1.5 px-3 text-purple-900';
   if (row.isChurn) return 'py-1.5 px-3 text-red-700';
   return 'py-1.5 px-3 text-gray-700';
 }
@@ -462,7 +489,7 @@ function cellLabelClass(row: TableRow): string {
 function cellValueClass(row: TableRow, isMonthly = false): string {
   const px = isMonthly ? 'px-2' : 'px-3';
   if (row.isSecondary) return `py-1 ${px} text-right text-gray-400 italic text-[11px]`;
-  if (row.isClosedWon) return `py-1.5 ${px} text-right text-purple-900`;
+  if (row.isClosedWon || row.isPurple) return `py-1.5 ${px} text-right text-purple-900`;
   if (row.isChurn) return `py-1.5 ${px} text-right text-red-600`;
   return `py-1.5 ${px} text-right text-gray-900`;
 }

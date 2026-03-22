@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyChannelConfig } from '@/lib/engine';
+import { runModel, runModelWithActuals, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
 import type { RampConfig } from '@/lib/types';
@@ -12,16 +12,31 @@ const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 export default function TopDownPlan() {
   const { plan } = useGTMPlan();
   const cc = plan.channelConfig;
+  const isInYear = plan.planningMode === 'in-year';
+  const hasActuals = (plan.detailedActuals?.length ?? 0) > 0;
 
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
   );
 
-  const model = useMemo(
+  // Always compute the pure plan projection (used for variance comparison)
+  const planModel = useMemo(
     () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
     [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
   );
+
+  // When in-year with actuals, compute reforecasted model
+  const model = useMemo(() => {
+    if (isInYear && hasActuals) {
+      return runModelWithActuals(
+        effectiveTargets, plan.seasonality, DEFAULT_RAMP,
+        plan.startingARR, plan.existingPipeline,
+        plan.detailedActuals, plan.currentMonth,
+      );
+    }
+    return planModel;
+  }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, planModel]);
 
   const projectedEnd = model.endingARR;
   const gap = plan.targetARR - projectedEnd;
@@ -51,6 +66,8 @@ export default function TopDownPlan() {
         planningMode={plan.planningMode}
         currentMonth={plan.currentMonth}
         detailedActuals={plan.detailedActuals}
+        planMonthly={isInYear && hasActuals ? planModel.monthly : undefined}
+        planQuarterly={isInYear && hasActuals ? planModel.quarterly : undefined}
       />
     </div>
   );
