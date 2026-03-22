@@ -302,6 +302,14 @@ export function applyChannelConfig(
     }
   }
 
+  // Expansion/churn toggles apply in both modes
+  if (!config.hasExpansion) {
+    modified.expansion.expansionRate = 0;
+  }
+  if (!config.hasChurn) {
+    modified.churn.monthlyChurnRate = 0;
+  }
+
   return modified;
 }
 

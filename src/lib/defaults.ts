@@ -212,6 +212,8 @@ export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
   hasNewProduct: true,
+  hasExpansion: true,
+  hasChurn: true,
   hasInboundHistory: true,
   hasOutboundHistory: true,
   hasNewProductHistory: true,

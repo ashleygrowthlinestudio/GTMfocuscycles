@@ -8,38 +8,7 @@ import MetricInput from '@/components/shared/MetricInput';
 import FunnelInputs from '@/components/shared/FunnelInputs';
 import RevenueTable from '@/components/shared/RevenueTable';
 import SeasonalityEditor from '@/components/shared/SeasonalityEditor';
-import type { Month, ChannelConfig } from '@/lib/types';
-
-function ChannelToggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 cursor-pointer select-none">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
-          checked ? 'bg-blue-600' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            checked ? 'translate-x-4' : 'translate-x-0'
-          }`}
-        />
-      </button>
-      <span className="text-xs text-gray-700">{label}</span>
-    </label>
-  );
-}
+import type { Month } from '@/lib/types';
 
 export default function TopDownPlan() {
   const { plan, dispatch } = useGTMPlan();
@@ -58,10 +27,6 @@ export default function TopDownPlan() {
   const projectedEnd = model.endingARR;
   const gap = plan.targetARR - projectedEnd;
 
-  const updateChannel = (key: keyof ChannelConfig, value: boolean) => {
-    dispatch({ type: 'SET_CHANNEL_CONFIG', payload: { ...cc, [key]: value } });
-  };
-
   return (
     <div className="space-y-6">
       {/* Top-level summary */}
@@ -77,22 +42,10 @@ export default function TopDownPlan() {
         />
       </div>
 
-      {/* Plan meta inputs */}
+      {/* Plan meta inputs — Ramp settings only (Starting/Target ARR moved to Setup) */}
       <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Plan Settings</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricInput
-            label="Starting ARR"
-            value={plan.startingARR}
-            onChange={(v) => dispatch({ type: 'SET_PLAN_META', payload: { startingARR: v } })}
-            type="currency"
-          />
-          <MetricInput
-            label="Target ARR"
-            value={plan.targetARR}
-            onChange={(v) => dispatch({ type: 'SET_PLAN_META', payload: { targetARR: v } })}
-            type="currency"
-          />
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Ramp Settings</h3>
+        <div className="grid grid-cols-2 gap-4">
           <MetricInput
             label="Ramp Months"
             value={plan.ramp.rampMonths}
@@ -114,29 +67,6 @@ export default function TopDownPlan() {
             min={1}
             max={12}
           />
-        </div>
-      </div>
-
-      {/* Channel Configuration */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Channel Configuration</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
-          <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Target Channels</div>
-            <div className="space-y-2">
-              <ChannelToggle label="Inbound" checked={cc.hasInbound} onChange={(v) => updateChannel('hasInbound', v)} />
-              <ChannelToggle label="Outbound" checked={cc.hasOutbound} onChange={(v) => updateChannel('hasOutbound', v)} />
-              <ChannelToggle label="New Product" checked={cc.hasNewProduct} onChange={(v) => updateChannel('hasNewProduct', v)} />
-            </div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Historical Channels</div>
-            <div className="space-y-2">
-              <ChannelToggle label="Inbound History" checked={cc.hasInboundHistory} onChange={(v) => updateChannel('hasInboundHistory', v)} />
-              <ChannelToggle label="Outbound History" checked={cc.hasOutboundHistory} onChange={(v) => updateChannel('hasOutboundHistory', v)} />
-              <ChannelToggle label="New Product History" checked={cc.hasNewProductHistory} onChange={(v) => updateChannel('hasNewProductHistory', v)} />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -210,30 +140,36 @@ export default function TopDownPlan() {
         />
       )}
 
-      {/* Expansion & Churn */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Expansion & Churn</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <MetricInput
-            label="Monthly Expansion Rate"
-            value={plan.targets.expansion.expansionRate}
-            onChange={(v) =>
-              dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, expansion: { expansionRate: v } } })
-            }
-            type="percent"
-            hint="% of existing ARR that expands each month"
-          />
-          <MetricInput
-            label="Monthly Churn Rate"
-            value={plan.targets.churn.monthlyChurnRate}
-            onChange={(v) =>
-              dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, churn: { monthlyChurnRate: v } } })
-            }
-            type="percent"
-            hint="% of ARR lost each month"
-          />
+      {/* Expansion & Churn — respect channel toggles */}
+      {(cc.hasExpansion || cc.hasChurn) && (
+        <div className="border border-gray-200 rounded-lg p-4 bg-white">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Expansion & Churn</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {cc.hasExpansion && (
+              <MetricInput
+                label="Monthly Expansion Rate"
+                value={plan.targets.expansion.expansionRate}
+                onChange={(v) =>
+                  dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, expansion: { expansionRate: v } } })
+                }
+                type="percent"
+                hint="% of existing ARR that expands each month"
+              />
+            )}
+            {cc.hasChurn && (
+              <MetricInput
+                label="Monthly Churn Rate"
+                value={plan.targets.churn.monthlyChurnRate}
+                onChange={(v) =>
+                  dispatch({ type: 'SET_TARGETS', payload: { ...plan.targets, churn: { monthlyChurnRate: v } } })
+                }
+                type="percent"
+                hint="% of ARR lost each month"
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* New Product Business funnel */}
       {cc.hasNewProduct && (

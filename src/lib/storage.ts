@@ -24,7 +24,15 @@ export function loadPlan(): GTMPlan | null {
 
     if (!raw) return null;
 
-    return JSON.parse(raw) as GTMPlan;
+    const plan = JSON.parse(raw) as GTMPlan;
+
+    // Backfill new channelConfig fields for saved plans that predate them
+    if (plan.channelConfig) {
+      if (plan.channelConfig.hasExpansion === undefined) plan.channelConfig.hasExpansion = true;
+      if (plan.channelConfig.hasChurn === undefined) plan.channelConfig.hasChurn = true;
+    }
+
+    return plan;
 
   } catch {
 

@@ -137,6 +137,8 @@ export interface ChannelConfig {
   hasInbound: boolean;
   hasOutbound: boolean;
   hasNewProduct: boolean;
+  hasExpansion: boolean;
+  hasChurn: boolean;
   hasInboundHistory: boolean;
   hasOutboundHistory: boolean;
   hasNewProductHistory: boolean;

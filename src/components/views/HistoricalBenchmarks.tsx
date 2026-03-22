@@ -64,36 +64,42 @@ export default function HistoricalBenchmarks() {
         />
       )}
 
-      {/* Expansion & Churn */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Current Expansion & Churn</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <MetricInput
-            label="Monthly Expansion Rate"
-            value={plan.historical.expansion.expansionRate}
-            onChange={(v) =>
-              dispatch({
-                type: 'SET_HISTORICAL',
-                payload: { ...plan.historical, expansion: { expansionRate: v } },
-              })
-            }
-            type="percent"
-            hint="Current monthly expansion as % of ARR"
-          />
-          <MetricInput
-            label="Monthly Churn Rate"
-            value={plan.historical.churn.monthlyChurnRate}
-            onChange={(v) =>
-              dispatch({
-                type: 'SET_HISTORICAL',
-                payload: { ...plan.historical, churn: { monthlyChurnRate: v } },
-              })
-            }
-            type="percent"
-            hint="Current monthly churn as % of ARR"
-          />
+      {/* Expansion & Churn — respect channel toggles */}
+      {(plan.channelConfig.hasExpansion || plan.channelConfig.hasChurn) && (
+        <div className="border border-gray-200 rounded-lg p-4 bg-white">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Current Expansion & Churn</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {plan.channelConfig.hasExpansion && (
+              <MetricInput
+                label="Monthly Expansion Rate"
+                value={plan.historical.expansion.expansionRate}
+                onChange={(v) =>
+                  dispatch({
+                    type: 'SET_HISTORICAL',
+                    payload: { ...plan.historical, expansion: { expansionRate: v } },
+                  })
+                }
+                type="percent"
+                hint="Current monthly expansion as % of ARR"
+              />
+            )}
+            {plan.channelConfig.hasChurn && (
+              <MetricInput
+                label="Monthly Churn Rate"
+                value={plan.historical.churn.monthlyChurnRate}
+                onChange={(v) =>
+                  dispatch({
+                    type: 'SET_HISTORICAL',
+                    payload: { ...plan.historical, churn: { monthlyChurnRate: v } },
+                  })
+                }
+                type="percent"
+                hint="Current monthly churn as % of ARR"
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* New Product (may be zero if not yet launched) */}
       {plan.channelConfig.hasNewProductHistory && (
