@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithActuals, applyChannelConfig } from '@/lib/engine';
+import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
 import type { RampConfig } from '@/lib/types';
@@ -27,7 +27,7 @@ export default function TopDownPlan() {
   );
 
   // When in-year with actuals, compute reforecasted model
-  const model = useMemo(() => {
+  const uncappedModel = useMemo(() => {
     if (isInYear && hasActuals) {
       return runModelWithActuals(
         effectiveTargets, plan.seasonality, DEFAULT_RAMP,
@@ -38,8 +38,15 @@ export default function TopDownPlan() {
     return planModel;
   }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, planModel]);
 
-  const projectedEnd = model.endingARR;
+  // Cap projections at target ARR
+  const model = useMemo(
+    () => capModelAtTarget(uncappedModel, plan.targetARR, plan.startingARR),
+    [uncappedModel, plan.targetARR, plan.startingARR],
+  );
+
+  const projectedEnd = Math.min(model.endingARR, plan.targetARR);
   const gap = plan.targetARR - projectedEnd;
+  const planAchieved = gap <= 0;
 
   return (
     <div className="space-y-6">
@@ -50,9 +57,9 @@ export default function TopDownPlan() {
         <SummaryCard label="Projected ARR" value={formatCurrency(projectedEnd)} color="green" />
         <SummaryCard
           label="Gap to Target"
-          value={formatCurrency(Math.abs(gap))}
-          color={gap > 0 ? 'red' : 'green'}
-          suffix={gap > 0 ? 'short' : 'above'}
+          value={planAchieved ? '$0' : formatCurrency(gap)}
+          color={planAchieved ? 'green' : 'red'}
+          suffix={planAchieved ? '✓ Plan Achieved' : 'short'}
         />
       </div>
 

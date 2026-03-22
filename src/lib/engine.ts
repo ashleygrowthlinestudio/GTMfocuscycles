@@ -340,6 +340,70 @@ export function runModel(
   };
 }
 
+// ── Cap model at target ARR ──────────────────────────────────
+
+export function capModelAtTarget(model: ModelRun, targetARR: number, startingARR: number): ModelRun {
+  const capped: MonthlyResult[] = [];
+  let currentARR = startingARR;
+  let reached = false;
+
+  for (const m of model.monthly) {
+    if (reached) {
+      // Target already reached — zero out all new ARR
+      capped.push({
+        ...m,
+        inboundClosedWon: 0,
+        outboundClosedWon: 0,
+        newProductInboundClosedWon: 0,
+        newProductOutboundClosedWon: 0,
+        expansionRevenue: 0,
+        churnRevenue: 0,
+        totalNewARR: 0,
+        cumulativeARR: targetARR,
+        inboundDeals: 0,
+        outboundDeals: 0,
+        newProductInboundDeals: 0,
+        newProductOutboundDeals: 0,
+      });
+    } else {
+      const wouldBe = currentARR + m.totalNewARR;
+      if (wouldBe >= targetARR) {
+        // This month reaches the target — cap the new ARR
+        const allowedNewARR = targetARR - currentARR;
+        const ratio = m.totalNewARR !== 0 ? allowedNewARR / m.totalNewARR : 0;
+        capped.push({
+          ...m,
+          inboundClosedWon: m.inboundClosedWon * ratio,
+          outboundClosedWon: m.outboundClosedWon * ratio,
+          newProductInboundClosedWon: m.newProductInboundClosedWon * ratio,
+          newProductOutboundClosedWon: m.newProductOutboundClosedWon * ratio,
+          expansionRevenue: m.expansionRevenue * ratio,
+          churnRevenue: m.churnRevenue * ratio,
+          totalNewARR: allowedNewARR,
+          cumulativeARR: targetARR,
+          inboundDeals: m.inboundDeals * ratio,
+          outboundDeals: m.outboundDeals * ratio,
+          newProductInboundDeals: m.newProductInboundDeals * ratio,
+          newProductOutboundDeals: m.newProductOutboundDeals * ratio,
+        });
+        currentARR = targetARR;
+        reached = true;
+      } else {
+        capped.push(m);
+        currentARR = wouldBe;
+      }
+    }
+  }
+
+  const quarterly = rollUpToQuarters(capped);
+  return {
+    monthly: capped,
+    quarterly,
+    endingARR: capped[11].cumulativeARR,
+    totalNewARRAdded: capped.reduce((s, m) => s + m.totalNewARR, 0),
+  };
+}
+
 // ── Run model with actuals for in-year reforecast ────────────
 
 function averageActualField(actuals: MonthlyActuals[], field: keyof MonthlyActuals): number {
