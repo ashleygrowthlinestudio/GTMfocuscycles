@@ -63,6 +63,7 @@ type TableRow = {
   isSecondary?: boolean; // italic, muted gray, constant rate
   isChurn?: boolean;
   isHighlight?: boolean;
+  isClosedWon?: boolean; // purple highlight for closed-won rows
   isConstant?: boolean;  // don't sum for total/annual column
 };
 
@@ -96,7 +97,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
   }
   // 7. Inbound Closed Won $
   rows.push(
-    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
   );
   // 8. Inbound New Customers
   rows.push(
@@ -124,7 +125,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
   }
   // 5. Outbound Closed Won $
   rows.push(
-    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
   );
   // 6. Outbound New Customers
   rows.push(
@@ -158,7 +159,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     );
   }
   rows.push(
-    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
   );
   rows.push(
     {
@@ -183,7 +184,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     );
   }
   rows.push(
-    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull },
+    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
   );
   rows.push(
     {
@@ -280,7 +281,7 @@ function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: Quarter
           return (
             <tr
               key={`${row.label}-${idx}`}
-              className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : ''}`}
+              className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50 font-semibold' : ''}`}
             >
               <td className={cellLabelClass(row)}>{row.label}</td>
               <td className="py-1.5 px-3 text-right text-gray-400">
@@ -343,7 +344,7 @@ function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult
         {rows.map((row, idx) => (
           <tr
             key={`${row.monthlyLabel || row.label}-${idx}`}
-            className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : ''}`}
+            className={`border-b border-gray-100 ${row.isHighlight ? 'bg-blue-50 font-semibold' : row.isClosedWon ? 'bg-purple-50 font-semibold' : ''}`}
           >
             <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
               {row.monthlyLabel || row.label}
@@ -365,6 +366,7 @@ function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult
 function cellLabelClass(row: TableRow): string {
   if (row.isSecondary) return 'py-1 px-3 pl-6 text-gray-400 italic text-[11px]';
   if (row.isHighlight) return 'py-1.5 px-3 text-gray-700';
+  if (row.isClosedWon) return 'py-1.5 px-3 text-purple-900';
   if (row.isChurn) return 'py-1.5 px-3 text-red-700';
   return 'py-1.5 px-3 text-gray-700';
 }
@@ -372,6 +374,7 @@ function cellLabelClass(row: TableRow): string {
 function cellValueClass(row: TableRow, isMonthly = false): string {
   const px = isMonthly ? 'px-2' : 'px-3';
   if (row.isSecondary) return `py-1 ${px} text-right text-gray-400 italic text-[11px]`;
+  if (row.isClosedWon) return `py-1.5 ${px} text-right text-purple-900`;
   if (row.isChurn) return `py-1.5 ${px} text-right text-red-600`;
   return `py-1.5 ${px} text-right text-gray-900`;
 }
