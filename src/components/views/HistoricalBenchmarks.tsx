@@ -2,7 +2,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyChannelConfig } from '@/lib/engine';
+import { runModel, applyChannelConfig, buildPipelineTimingMap } from '@/lib/engine';
+import type { PipelineTimingMap } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import { isQuarterFilled } from '@/components/shared/HistoricalDataSheet';
 import type { QuarterlyHistoricalData, SeasonalityWeights, RampConfig, RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
@@ -254,6 +255,17 @@ function ProjBadge() {
   return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 leading-none align-middle">PROJ</span>;
 }
 
+function HBClockIcon({ status, tooltip }: { status: 'green' | 'amber' | 'red'; tooltip: string }) {
+  const colorMap = { green: 'text-green-500', amber: 'text-amber-500', red: 'text-red-500' };
+  return (
+    <span className={`inline-block ml-1 cursor-help ${colorMap[status]}`} title={tooltip}>
+      <svg className="w-3 h-3 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </span>
+  );
+}
+
 // ── Main component ──
 
 export default function HistoricalBenchmarks() {
@@ -288,6 +300,12 @@ export default function HistoricalBenchmarks() {
 
   const projectedEndARR = model.endingARR;
   const gapToTarget = plan.targetARR - projectedEndARR;
+
+  // Pipeline timing
+  const pipelineTimingMap = useMemo(
+    () => buildPipelineTimingMap(effectiveBreakdown, currentMonth),
+    [effectiveBreakdown, currentMonth],
+  );
 
   // Build table rows
   const rows = useMemo(() => buildRows(effectiveBreakdown, {
@@ -371,6 +389,7 @@ export default function HistoricalBenchmarks() {
               trends={trends}
               isInYear={isInYear}
               currentMonth={currentMonth}
+              pipelineTimingMap={pipelineTimingMap}
             />
           ) : (
             <MonthlyView
@@ -380,6 +399,7 @@ export default function HistoricalBenchmarks() {
               trends={trends}
               isInYear={isInYear}
               currentMonth={currentMonth}
+              pipelineTimingMap={pipelineTimingMap}
             />
           )}
         </div>
@@ -390,13 +410,14 @@ export default function HistoricalBenchmarks() {
 
 // ── Quarterly View ──
 
-function QuarterlyView({ quarterly, startingARR, rows, trends, isInYear, currentMonth }: {
+function QuarterlyView({ quarterly, startingARR, rows, trends, isInYear, currentMonth, pipelineTimingMap }: {
   quarterly: QuarterlyResult[];
   startingARR: number;
   rows: TableRow[];
   trends: Map<number, TrendInfo>;
   isInYear?: boolean;
   currentMonth: number;
+  pipelineTimingMap?: PipelineTimingMap;
 }) {
   const cm = currentMonth;
   const quarterMonths: Record<string, number[]> = { Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12] };
@@ -433,7 +454,14 @@ function QuarterlyView({ quarterly, startingARR, rows, trends, isInYear, current
           return (
             <React.Fragment key={`${row.label}-${idx}`}>
               <tr className={`border-b border-gray-100 ${rowBgClass(row)}`}>
-                <td className={cellLabelClass(row)}>{row.label}</td>
+                <td className={cellLabelClass(row)}>
+                  {row.label}
+                  {pipelineTimingMap?.[row.label] && (() => {
+                    const entries = Object.values(pipelineTimingMap[row.label]);
+                    const worst = entries.find((e) => e.status === 'red') || entries.find((e) => e.status === 'amber') || entries[0];
+                    return worst ? <HBClockIcon status={worst.status} tooltip={worst.tooltip} /> : null;
+                  })()}
+                </td>
                 <td className="py-1.5 px-3 text-right text-gray-400">{row.isSecondary ? '' : '—'}</td>
                 {quarterValues.map((val, qi) => (
                   <td key={quarterly[qi].quarter} className={cellValueClass(row)}>
@@ -474,12 +502,13 @@ function QuarterlyView({ quarterly, startingARR, rows, trends, isInYear, current
 
 // ── Monthly View ──
 
-function MonthlyView({ monthly, startingARR, rows, trends, isInYear, currentMonth }: {
+function MonthlyView({ monthly, startingARR, rows, trends, isInYear, currentMonth, pipelineTimingMap }: {
   monthly: MonthlyResult[];
   startingARR: number;
   rows: TableRow[];
   trends: Map<number, TrendInfo>;
   isInYear?: boolean;
+  pipelineTimingMap?: PipelineTimingMap;
   currentMonth: number;
 }) {
   const cm = currentMonth;
@@ -512,11 +541,15 @@ function MonthlyView({ monthly, startingARR, rows, trends, isInYear, currentMont
                 <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
                   {row.monthlyLabel || row.label}
                 </td>
-                {monthly.map((m) => (
-                  <td key={m.month} className={cellValueClass(row, true)}>
-                    {row.fmt(row.getMonthly(m))}
-                  </td>
-                ))}
+                {monthly.map((m) => {
+                  const timing = pipelineTimingMap?.[row.label]?.[m.month];
+                  return (
+                    <td key={m.month} className={cellValueClass(row, true)}>
+                      {row.fmt(row.getMonthly(m))}
+                      {timing && <HBClockIcon status={timing.status} tooltip={timing.tooltip} />}
+                    </td>
+                  );
+                })}
               </tr>
               {/* QoQ Trend row */}
               {trend && (

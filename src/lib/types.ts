@@ -292,3 +292,17 @@ export interface GapResult {
   pipelineGap: number;
 }
 
+// ── Pipeline deadline ────────────────────────────────────────
+export type PipelineChannel = 'inbound' | 'outbound' | 'newProductInbound' | 'newProductOutbound';
+
+export interface PipelineDeadline {
+  closingMonth: number;
+  channel: PipelineChannel;
+  pipelineNeededBy: number; // month (can be < 1 if before plan year)
+  pipelineAmount: number;
+  closedWonAmount: number;
+  hisNeededBy?: number; // inbound channels only
+  hisAmount?: number;
+  isUrgent: boolean; // pipelineNeededBy <= currentMonth
+}
+

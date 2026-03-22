@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals } from '@/lib/types';
+import type { PipelineTimingMap } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 
 interface RevenueTableProps {
@@ -15,11 +16,12 @@ interface RevenueTableProps {
   detailedActuals?: MonthlyActuals[];
   planMonthly?: MonthlyResult[];
   planQuarterly?: QuarterlyResult[];
+  pipelineTimingMap?: PipelineTimingMap;
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
   const [showVariance, setShowVariance] = useState(false);
   const isInYear = planningMode === 'in-year';
@@ -63,9 +65,9 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
 
       <div className="overflow-x-auto">
         {viewMode === 'quarterly' ? (
-          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} />
+          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} />
         )}
       </div>
     </div>
@@ -321,9 +323,22 @@ function sumProjectedMonths(q: QuarterlyResult, cm: number, getMonthly: (m: Mont
   return q.months.filter((m) => m.month >= cm).reduce((s, m) => s + getMonthly(m), 0);
 }
 
+/* ── Pipeline timing clock icon ──────────────────────────────── */
+
+function PipelineClockIcon({ status, tooltip }: { status: 'green' | 'amber' | 'red'; tooltip: string }) {
+  const colorMap = { green: 'text-green-500', amber: 'text-amber-500', red: 'text-red-500' };
+  return (
+    <span className={`inline-block ml-1 cursor-help ${colorMap[status]}`} title={tooltip}>
+      <svg className="w-3 h-3 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </span>
+  );
+}
+
 /* ── Quarterly View ───────────────────────────────────────── */
 
-function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[] }) {
+function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly, pipelineTimingMap }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[]; pipelineTimingMap?: PipelineTimingMap }) {
   const rows = useMemo(() => buildRows(targets), [targets]);
   const cm = currentMonth ?? 1;
 
@@ -409,7 +424,14 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
               <tr
                 className={`border-b border-gray-100 ${rowBgClass(row)}`}
               >
-                <td className={cellLabelClass(row)}>{row.label}</td>
+                <td className={cellLabelClass(row)}>
+                  {row.label}
+                  {pipelineTimingMap?.[row.label] && (() => {
+                    const entries = Object.values(pipelineTimingMap[row.label]);
+                    const worst = entries.find((e) => e.status === 'red') || entries.find((e) => e.status === 'amber') || entries[0];
+                    return worst ? <PipelineClockIcon status={worst.status} tooltip={worst.tooltip} /> : null;
+                  })()}
+                </td>
                 <td className="py-1.5 px-3 text-right text-gray-400">
                   {row.isSecondary ? '' : '—'}
                 </td>
@@ -460,7 +482,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[] }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap }) {
   const rows = useMemo(() => {
     const base = buildRows(targets);
     // Add Cumulative ARR at end
@@ -497,12 +519,14 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
               {monthly.map((m) => {
                 const isAct = isInYear && m.month < cm;
                 const val = row.getMonthly(m);
+                const timing = pipelineTimingMap?.[row.label]?.[m.month];
                 return (
                   <td key={m.month} className={`${cellValueClass(row, true)}${isAct && !row.isSecondary && !row.isConstant ? ' bg-green-50/50' : ''}`}>
                     {isAct && !row.isSecondary && !row.isConstant
                       ? <span className="text-green-700">{row.fmt(val)}</span>
                       : row.fmt(val)
                     }
+                    {timing && <PipelineClockIcon status={timing.status} tooltip={timing.tooltip} />}
                   </td>
                 );
               })}

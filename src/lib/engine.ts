@@ -14,6 +14,8 @@ import type {
   OutboundFunnelInputs,
   MonthlyActuals,
   ChannelMix,
+  PipelineDeadline,
+  PipelineChannel,
 } from './types';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -317,6 +319,149 @@ export function computeChannelMix(model: ModelRun): ChannelMix {
     expansion: expRev / total,
     churn: churnRev / total,
   };
+}
+
+// ── Pipeline deadline calculation ─────────────────────────────
+
+export function calculatePipelineDeadlines(
+  monthly: MonthlyResult[],
+  targets: RevenueBreakdown,
+  currentMonth: number,
+): PipelineDeadline[] {
+  const deadlines: PipelineDeadline[] = [];
+
+  const channels: {
+    channel: PipelineChannel;
+    salesCycle: number;
+    getClosedWon: (m: MonthlyResult) => number;
+    getPipeline: (m: MonthlyResult) => number;
+    isInbound: boolean;
+    hisRate?: number;
+  }[] = [
+    {
+      channel: 'inbound',
+      salesCycle: targets.newBusiness.inbound.salesCycleMonths,
+      getClosedWon: (m) => m.inboundClosedWon,
+      getPipeline: (m) => m.inboundPipelineCreated,
+      isInbound: true,
+      hisRate: targets.newBusiness.inbound.hisToPipelineRate,
+    },
+    {
+      channel: 'outbound',
+      salesCycle: targets.newBusiness.outbound.salesCycleMonths,
+      getClosedWon: (m) => m.outboundClosedWon,
+      getPipeline: (m) => m.outboundPipelineCreated,
+      isInbound: false,
+    },
+    {
+      channel: 'newProductInbound',
+      salesCycle: targets.newProduct.inbound.salesCycleMonths,
+      getClosedWon: (m) => m.newProductInboundClosedWon,
+      getPipeline: (m) => m.newProductInboundPipelineCreated,
+      isInbound: true,
+      hisRate: targets.newProduct.inbound.hisToPipelineRate,
+    },
+    {
+      channel: 'newProductOutbound',
+      salesCycle: targets.newProduct.outbound.salesCycleMonths,
+      getClosedWon: (m) => m.newProductOutboundClosedWon,
+      getPipeline: (m) => m.newProductOutboundPipelineCreated,
+      isInbound: false,
+    },
+  ];
+
+  for (const ch of channels) {
+    if (ch.salesCycle <= 0) continue;
+
+    for (const m of monthly) {
+      const closedWon = ch.getClosedWon(m);
+      if (closedWon <= 0) continue;
+
+      const pipelineMonth = m.month - Math.round(ch.salesCycle);
+      const pipelineAmt = pipelineMonth >= 1 && pipelineMonth <= 12
+        ? ch.getPipeline(monthly[pipelineMonth - 1])
+        : closedWon; // estimate if outside range
+
+      const dl: PipelineDeadline = {
+        closingMonth: m.month,
+        channel: ch.channel,
+        pipelineNeededBy: pipelineMonth,
+        pipelineAmount: pipelineAmt,
+        closedWonAmount: closedWon,
+        isUrgent: pipelineMonth <= currentMonth,
+      };
+
+      if (ch.isInbound && ch.hisRate && ch.hisRate > 0) {
+        const hisMonth = pipelineMonth - 1; // HIS needs to happen before pipeline conversion
+        dl.hisNeededBy = hisMonth;
+        dl.hisAmount = ch.hisRate > 0 ? pipelineAmt / (ch.hisRate * (targets.newBusiness.inbound.acv || 1)) : 0;
+      }
+
+      deadlines.push(dl);
+    }
+  }
+
+  return deadlines;
+}
+
+// ── Pipeline timing map for inline indicators ────────────────
+
+export type PipelineTimingStatus = 'green' | 'amber' | 'red';
+
+export interface PipelineTimingEntry {
+  tooltip: string;
+  status: PipelineTimingStatus;
+}
+
+// Map: pipeline row label → month → timing info
+export type PipelineTimingMap = Record<string, Record<number, PipelineTimingEntry>>;
+
+const MONTH_NAMES_FULL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function buildPipelineTimingMap(
+  targets: RevenueBreakdown,
+  currentMonth: number,
+): PipelineTimingMap {
+  const map: PipelineTimingMap = {};
+
+  const channels: {
+    label: string;
+    salesCycle: number;
+  }[] = [
+    { label: 'Inbound Qualified Pipeline $', salesCycle: targets.newBusiness.inbound.salesCycleMonths },
+    { label: 'Outbound Qualified Pipeline $', salesCycle: targets.newBusiness.outbound.salesCycleMonths },
+    { label: 'NP Inbound Qualified Pipeline $', salesCycle: targets.newProduct.inbound.salesCycleMonths },
+    { label: 'NP Outbound Qualified Pipeline $', salesCycle: targets.newProduct.outbound.salesCycleMonths },
+  ];
+
+  for (const ch of channels) {
+    if (ch.salesCycle <= 0) continue;
+    const entries: Record<number, PipelineTimingEntry> = {};
+
+    for (let m = 1; m <= 12; m++) {
+      const closesIn = m + Math.round(ch.salesCycle);
+      const closesName = closesIn <= 12 ? MONTH_NAMES_FULL[closesIn - 1] : `Month ${closesIn}`;
+
+      let status: PipelineTimingStatus;
+      if (m < currentMonth) {
+        status = 'red'; // past deadline
+      } else if (m === currentMonth) {
+        status = 'amber'; // current month
+      } else {
+        status = 'green'; // future
+      }
+
+      const trackText = status === 'green' ? 'On track' : status === 'amber' ? 'Due now' : `${currentMonth - m} mo behind`;
+      entries[m] = {
+        tooltip: `Feeds closed won in ${closesName}. ${trackText}.`,
+        status,
+      };
+    }
+
+    map[ch.label] = entries;
+  }
+
+  return map;
 }
 
 // ── Channel config application ───────────────────────────────
