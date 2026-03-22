@@ -13,6 +13,7 @@ import type {
   InboundFunnelInputs,
   OutboundFunnelInputs,
   MonthlyActuals,
+  ChannelMix,
 } from './types';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -241,6 +242,32 @@ export function applyStrategicBets(
   for (const bet of bets) {
     if (!bet.enabled) continue;
 
+    // Revenue mix bets: scale channel inputs by (improved / current) ratio
+    if (bet.category === 'revenueMix') {
+      const scale = bet.currentValue > 0 ? bet.improvedValue / bet.currentValue : 1;
+      switch (bet.metric) {
+        case 'inboundMixPct':
+          modified.newBusiness.inbound.hisMonthly *= scale;
+          break;
+        case 'outboundMixPct':
+          modified.newBusiness.outbound.pipelineMonthly *= scale;
+          break;
+        case 'newProductInboundMixPct':
+          modified.newProduct.inbound.hisMonthly *= scale;
+          break;
+        case 'newProductOutboundMixPct':
+          modified.newProduct.outbound.pipelineMonthly *= scale;
+          break;
+        case 'expansionMixPct':
+          modified.expansion.expansionRate *= scale;
+          break;
+        case 'churnMixPct':
+          modified.churn.monthlyChurnRate *= scale;
+          break;
+      }
+      continue;
+    }
+
     if (bet.category === 'expansion' && bet.metric === 'expansionRate') {
       modified.expansion.expansionRate = bet.improvedValue;
     } else if (bet.category === 'churn' && bet.metric === 'monthlyChurnRate') {
@@ -264,6 +291,32 @@ export function applyStrategicBets(
   }
 
   return modified;
+}
+
+// ── Channel mix calculation ──────────────────────────────────
+
+export function computeChannelMix(model: ModelRun): ChannelMix {
+  const m = model.monthly;
+  const ibCW = m.reduce((s, r) => s + r.inboundClosedWon, 0);
+  const obCW = m.reduce((s, r) => s + r.outboundClosedWon, 0);
+  const npIbCW = m.reduce((s, r) => s + r.newProductInboundClosedWon, 0);
+  const npObCW = m.reduce((s, r) => s + r.newProductOutboundClosedWon, 0);
+  const expRev = m.reduce((s, r) => s + r.expansionRevenue, 0);
+  const churnRev = m.reduce((s, r) => s + Math.abs(r.churnRevenue), 0);
+
+  const total = ibCW + obCW + npIbCW + npObCW + expRev + churnRev;
+  if (total === 0) {
+    return { inbound: 0, outbound: 0, newProductInbound: 0, newProductOutbound: 0, expansion: 0, churn: 0 };
+  }
+
+  return {
+    inbound: ibCW / total,
+    outbound: obCW / total,
+    newProductInbound: npIbCW / total,
+    newProductOutbound: npObCW / total,
+    expansion: expRev / total,
+    churn: churnRev / total,
+  };
 }
 
 // ── Channel config application ───────────────────────────────

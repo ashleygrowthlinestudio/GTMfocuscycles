@@ -153,9 +153,24 @@ export type BetMetric =
   | 'pipelineMonthly'
   | 'acv'
   | 'expansionRate'
-  | 'monthlyChurnRate';
+  | 'monthlyChurnRate'
+  | 'inboundMixPct'
+  | 'outboundMixPct'
+  | 'newProductInboundMixPct'
+  | 'newProductOutboundMixPct'
+  | 'expansionMixPct'
+  | 'churnMixPct';
 
-export type BetCategory = 'newBusiness' | 'expansion' | 'churn' | 'newProduct';
+export type BetCategory = 'newBusiness' | 'expansion' | 'churn' | 'newProduct' | 'revenueMix';
+
+export interface ChannelMix {
+  inbound: number;
+  outbound: number;
+  newProductInbound: number;
+  newProductOutbound: number;
+  expansion: number;
+  churn: number;
+}
 export type BetChannel = 'inbound' | 'outbound';
 
 export interface StrategicBet {
