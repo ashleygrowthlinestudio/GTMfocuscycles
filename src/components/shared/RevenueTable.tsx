@@ -296,35 +296,87 @@ function formatVariance(diff: number, fmt: (v: number) => string): { text: strin
   };
 }
 
+/* ── Quarter status helpers ───────────────────────────────── */
+
+type QuarterStatus = 'all-actual' | 'mixed' | 'all-projected';
+
+function getQuarterStatus(quarter: string, cm: number): QuarterStatus {
+  const quarterMonths: Record<string, number[]> = {
+    Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12],
+  };
+  const months = quarterMonths[quarter] || [];
+  const actualCount = months.filter((m) => m < cm).length;
+  if (actualCount === 3) return 'all-actual';
+  if (actualCount === 0) return 'all-projected';
+  return 'mixed';
+}
+
+/** Sum only the actual (completed) months within a quarter for a given row */
+function sumActualMonths(q: QuarterlyResult, cm: number, getMonthly: (m: MonthlyResult) => number): number {
+  return q.months.filter((m) => m.month < cm).reduce((s, m) => s + getMonthly(m), 0);
+}
+
+/** Sum only the projected (future) months within a quarter for a given row */
+function sumProjectedMonths(q: QuarterlyResult, cm: number, getMonthly: (m: MonthlyResult) => number): number {
+  return q.months.filter((m) => m.month >= cm).reduce((s, m) => s + getMonthly(m), 0);
+}
+
 /* ── Quarterly View ───────────────────────────────────────── */
 
 function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[] }) {
   const rows = useMemo(() => buildRows(targets), [targets]);
   const cm = currentMonth ?? 1;
 
-  // Determine quarter status for badges
-  const quarterMonths: Record<string, Month[]> = {
-    Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12],
-  };
+  const quarterStatuses = useMemo(
+    () => quarterly.map((q) => getQuarterStatus(q.quarter, cm)),
+    [quarterly, cm],
+  );
 
-  function quarterBadges(quarter: string) {
+  function quarterBadges(qi: number) {
     if (!isInYear) return null;
-    const months = quarterMonths[quarter] || [];
-    const hasActual = months.some((m) => m < cm);
-    const hasProjected = months.some((m) => m >= cm);
+    const status = quarterStatuses[qi];
     return (
       <span>
-        {hasActual && <ActBadge />}
-        {hasProjected && <ProjBadge />}
+        {status !== 'all-projected' && <ActBadge />}
+        {status !== 'all-actual' && <ProjBadge />}
       </span>
     );
   }
 
   // Check if a quarter has any completed months
   function quarterHasActual(qi: number): boolean {
-    const months = quarterly[qi]?.months;
-    if (!months) return false;
-    return months.some((m) => m.month < cm);
+    return quarterStatuses[qi] !== 'all-projected';
+  }
+
+  /** Render the cell content for a quarterly value */
+  function renderQuarterCell(row: TableRow, qi: number, val: number) {
+    const status = quarterStatuses[qi];
+
+    // Not in-year mode or constant rows: just show the value
+    if (!isInYear || row.isSecondary || row.isConstant) {
+      return row.fmt(val);
+    }
+
+    // All actual: show total with green tint
+    if (status === 'all-actual') {
+      return <span className="text-green-700">{row.fmt(val)}</span>;
+    }
+
+    // All projected: show total as-is
+    if (status === 'all-projected') {
+      return row.fmt(val);
+    }
+
+    // Mixed quarter: show ACT / PROJ split
+    const q = quarterly[qi];
+    const actVal = sumActualMonths(q, cm, row.getMonthly);
+    const projVal = sumProjectedMonths(q, cm, row.getMonthly);
+    return (
+      <span className="flex flex-col items-end gap-0.5 leading-tight">
+        <span className="text-green-700">{row.fmt(actVal)} <span className="text-[9px] font-medium text-green-600">ACT</span></span>
+        <span className="text-blue-700">{row.fmt(projVal)} <span className="text-[9px] font-medium text-blue-600">PROJ</span></span>
+      </span>
+    );
   }
 
   return (
@@ -333,9 +385,9 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
         <tr className="border-b border-gray-200 bg-gray-50">
           <th className="text-left py-2 px-3 font-medium text-gray-500 w-48">Metric</th>
           <th className="text-right py-2 px-3 font-medium text-gray-500 w-24">Start</th>
-          {quarterly.map((q) => (
+          {quarterly.map((q, qi) => (
             <th key={q.quarter} className="text-right py-2 px-3 font-medium text-gray-500 w-28">
-              {q.quarter}{quarterBadges(q.quarter)}
+              {q.quarter}{quarterBadges(qi)}
             </th>
           ))}
           <th className="text-right py-2 px-3 font-medium text-gray-500 w-28">Total</th>
@@ -363,7 +415,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
                 </td>
                 {quarterValues.map((val, qi) => (
                   <td key={quarterly[qi].quarter} className={cellValueClass(row)}>
-                    {row.fmt(val)}
+                    {renderQuarterCell(row, qi, val)}
                   </td>
                 ))}
                 <td className={`${cellValueClass(row)} font-medium`}>
@@ -442,11 +494,18 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
               <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
                 {row.monthlyLabel || row.label}
               </td>
-              {monthly.map((m) => (
-                <td key={m.month} className={cellValueClass(row, true)}>
-                  {row.fmt(row.getMonthly(m))}
-                </td>
-              ))}
+              {monthly.map((m) => {
+                const isAct = isInYear && m.month < cm;
+                const val = row.getMonthly(m);
+                return (
+                  <td key={m.month} className={`${cellValueClass(row, true)}${isAct && !row.isSecondary && !row.isConstant ? ' bg-green-50/50' : ''}`}>
+                    {isAct && !row.isSecondary && !row.isConstant
+                      ? <span className="text-green-700">{row.fmt(val)}</span>
+                      : row.fmt(val)
+                    }
+                  </td>
+                );
+              })}
             </tr>
             {showVariance && planMonthly && !row.isSecondary && !row.isConstant && (
               <tr className="border-b border-gray-50">
