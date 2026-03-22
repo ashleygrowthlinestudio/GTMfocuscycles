@@ -498,6 +498,146 @@ export default function ExecutiveSummary() {
             </ul>
           </section>
         )}
+
+        <hr className="border-gray-200" />
+
+        {/* ── Section 7: Conversion Rate Targets ─────────────── */}
+        {(() => {
+          const hq = plan.historicalQuarters;
+          const avg = (vals: number[]) => vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+
+          // Color: green if plan is "better", red if "worse", gray if within 2pp/2%
+          const deltaColor = (plan: number, hist: number, higherIsBetter: boolean, isPct: boolean) => {
+            const diff = plan - hist;
+            const threshold = isPct ? 0.02 : hist * 0.02;
+            if (Math.abs(diff) <= threshold) return 'text-gray-500';
+            const isBetter = higherIsBetter ? diff > 0 : diff < 0;
+            return isBetter ? 'text-green-700' : 'text-red-600';
+          };
+
+          type Row = { metric: string; histVal: number; planVal: number; isPct: boolean; higherIsBetter: boolean };
+          type ChannelTable = { name: string; rows: Row[] };
+          const tables: ChannelTable[] = [];
+
+          const fmtR = (v: number, isPct: boolean) => isPct ? `${(v * 100).toFixed(1)}%` : formatCurrencyFull(v);
+          const fmtDelta = (plan: number, hist: number, isPct: boolean) => {
+            const d = plan - hist;
+            const sign = d >= 0 ? '+' : '';
+            return isPct ? `${sign}${(d * 100).toFixed(1)}pp` : `${sign}${formatCurrencyFull(d)}`;
+          };
+
+          if (cc.hasInbound && hq.length > 0) {
+            const h = effectiveHistorical.newBusiness.inbound;
+            const t = effectiveTargets.newBusiness.inbound;
+            const histWR = avg(hq.map((q) => q.inboundWinRate));
+            const histACV = avg(hq.map((q) => q.inboundACV));
+            const histHTP = avg(hq.map((q) => q.inboundHISToPipelineRate));
+            const histSC = avg(hq.map((q) => q.inboundSalesCycle));
+            tables.push({
+              name: 'Inbound',
+              rows: [
+                { metric: 'Win Rate', histVal: histWR, planVal: t.winRate, isPct: true, higherIsBetter: true },
+                { metric: 'ACV', histVal: histACV, planVal: t.acv, isPct: false, higherIsBetter: true },
+                { metric: 'HIS→Pipeline Rate', histVal: histHTP, planVal: t.hisToPipelineRate, isPct: true, higherIsBetter: true },
+                { metric: 'Sales Cycle', histVal: histSC, planVal: t.salesCycleMonths, isPct: false, higherIsBetter: false },
+              ],
+            });
+          }
+
+          if (cc.hasOutbound && hq.length > 0) {
+            const t = effectiveTargets.newBusiness.outbound;
+            const histWR = avg(hq.map((q) => q.outboundWinRate));
+            const histACV = avg(hq.map((q) => q.outboundACV));
+            const histSC = avg(hq.map((q) => q.outboundSalesCycle));
+            tables.push({
+              name: 'Outbound',
+              rows: [
+                { metric: 'Win Rate', histVal: histWR, planVal: t.winRate, isPct: true, higherIsBetter: true },
+                { metric: 'ACV', histVal: histACV, planVal: t.acv, isPct: false, higherIsBetter: true },
+                { metric: 'Sales Cycle', histVal: histSC, planVal: t.salesCycleMonths, isPct: false, higherIsBetter: false },
+              ],
+            });
+          }
+
+          if (cc.hasNewProduct && hq.length > 0) {
+            const t = effectiveTargets.newProduct.inbound;
+            const histWR = avg(hq.map((q) => q.newProductWinRate));
+            const histACV = avg(hq.map((q) => q.newProductACV));
+            const histSC = avg(hq.map((q) => q.newProductSalesCycle));
+            const histHTP = avg(hq.map((q) => q.newProductHISToPipelineRate));
+            tables.push({
+              name: 'New Product',
+              rows: [
+                { metric: 'Win Rate', histVal: histWR, planVal: t.winRate, isPct: true, higherIsBetter: true },
+                { metric: 'ACV', histVal: histACV, planVal: t.acv, isPct: false, higherIsBetter: true },
+                { metric: 'HIS→Pipeline Rate', histVal: histHTP, planVal: t.hisToPipelineRate, isPct: true, higherIsBetter: true },
+                { metric: 'Sales Cycle', histVal: histSC, planVal: t.salesCycleMonths, isPct: false, higherIsBetter: false },
+              ],
+            });
+          }
+
+          // Expansion row
+          if (hq.length > 0) {
+            const histExp = avg(hq.map((q) => q.expansionRate));
+            const planExp = effectiveTargets.expansion.expansionRate;
+            if (histExp > 0 || planExp > 0) {
+              tables.push({
+                name: 'Expansion & Churn',
+                rows: [
+                  { metric: 'Expansion Rate', histVal: histExp, planVal: planExp, isPct: true, higherIsBetter: true },
+                  { metric: 'Churn Rate', histVal: avg(hq.map((q) => q.churnRate)), planVal: effectiveTargets.churn.monthlyChurnRate, isPct: true, higherIsBetter: false },
+                ],
+              });
+            }
+          }
+
+          if (tables.length === 0) return null;
+
+          return (
+            <section className="print-break">
+              <h2 className="text-lg font-bold text-gray-900">Conversion Rate Targets</h2>
+              <p className="text-sm text-gray-500 mt-1">Plan targets vs. historical averages across {hq.length} quarters.</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                {tables.map((tbl) => (
+                  <div key={tbl.name} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                    <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-800">{tbl.name}</h4>
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-gray-500">
+                          <th className="text-left px-3 py-1.5 font-medium">Metric</th>
+                          <th className="text-right px-3 py-1.5 font-medium">Historical Avg</th>
+                          <th className="text-right px-3 py-1.5 font-medium">Plan Target</th>
+                          <th className="text-right px-3 py-1.5 font-medium">Delta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tbl.rows.map((r) => {
+                          const color = deltaColor(r.planVal, r.histVal, r.higherIsBetter, r.isPct);
+                          const fmtSC = (v: number) => `${v.toFixed(1)} mo`;
+                          const fmt = r.metric === 'Sales Cycle' ? fmtSC : (v: number) => fmtR(v, r.isPct);
+                          const fmtD = r.metric === 'Sales Cycle'
+                            ? () => { const d = r.planVal - r.histVal; return `${d >= 0 ? '+' : ''}${d.toFixed(1)} mo`; }
+                            : () => fmtDelta(r.planVal, r.histVal, r.isPct);
+                          return (
+                            <tr key={r.metric} className="border-b border-gray-50 last:border-b-0">
+                              <td className="px-3 py-1.5 text-gray-700">{r.metric}</td>
+                              <td className="px-3 py-1.5 text-right text-gray-500">{fmt(r.histVal)}</td>
+                              <td className="px-3 py-1.5 text-right font-medium text-gray-800">{fmt(r.planVal)}</td>
+                              <td className={`px-3 py-1.5 text-right font-medium ${color}`}>{fmtD()}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })()}
       </div>
     </>
   );
