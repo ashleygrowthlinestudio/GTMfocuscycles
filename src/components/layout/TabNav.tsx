@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-export type TabId = 'setup' | 'targets' | 'historical' | 'gap' | 'bets' | 'summary';
+export type TabId = 'setup' | 'targets' | 'historical' | 'gap' | 'bets' | 'summary' | 'methodology';
 
 interface TabNavProps {
   activeTab: TabId;
@@ -16,6 +16,7 @@ const TABS: { id: TabId; label: string; description: string }[] = [
   { id: 'gap', label: '3. The Gap', description: 'Target vs. status quo' },
   { id: 'bets', label: '4. Strategic Bets', description: 'Focus cycle calculator' },
   { id: 'summary', label: '5. Executive Summary', description: 'Full rollup' },
+  { id: 'methodology', label: '6. Methodology', description: 'How it works' },
 ];
 
 export default function TabNav({ activeTab, onTabChange }: TabNavProps) {
