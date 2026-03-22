@@ -309,23 +309,21 @@ export default function HistoricalBenchmarks() {
     return map;
   }, [rows, historicalQuarters, filledCount]);
 
+  const planAchieved = gapToTarget <= 0;
+
   return (
     <div className="space-y-6">
-      {/* Summary Banner */}
-      <div className={`rounded-lg border p-4 ${gapToTarget > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-        <h2 className="text-sm font-semibold mb-1" style={{ color: gapToTarget > 0 ? '#92400e' : '#166534' }}>
-          Status Quo Projection
-        </h2>
-        <p className="text-sm" style={{ color: gapToTarget > 0 ? '#92400e' : '#166534' }}>
-          If nothing changes from current performance, you will end the year at{' '}
-          <span className="font-bold">{formatCurrency(projectedEndARR)}</span> ARR.
-        </p>
-        <p className="text-sm mt-1" style={{ color: gapToTarget > 0 ? '#b45309' : '#15803d' }}>
-          That is{' '}
-          <span className="font-bold">{formatCurrency(Math.abs(gapToTarget))}</span>{' '}
-          {gapToTarget > 0 ? 'short of' : 'above'} your{' '}
-          <span className="font-bold">{formatCurrency(plan.targetARR)}</span> target.
-        </p>
+      {/* Summary cards (same layout as Revenue Targets tab) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <SummaryCard label="Starting ARR" value={formatCurrency(plan.startingARR)} color="gray" />
+        <SummaryCard label="Target ARR" value={formatCurrency(plan.targetARR)} color="blue" />
+        <SummaryCard label="Projected ARR" value={formatCurrency(projectedEndARR)} color="green" />
+        <SummaryCard
+          label="Gap to Target"
+          value={planAchieved ? '$0' : formatCurrency(gapToTarget)}
+          color={planAchieved ? 'green' : 'red'}
+          suffix={planAchieved ? '✓ Plan Achieved' : 'short'}
+        />
       </div>
 
       {/* Warning if < 4 quarters */}
@@ -535,5 +533,36 @@ function MonthlyView({ monthly, startingARR, rows, trends, isInYear, currentMont
         })}
       </tbody>
     </table>
+  );
+}
+
+// ── Summary Card (matches TopDownPlan exactly) ──
+
+function SummaryCard({
+  label,
+  value,
+  color,
+  suffix,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  suffix?: string;
+}) {
+  const colorMap: Record<string, string> = {
+    gray: 'bg-gray-50 border-gray-200 text-gray-700',
+    blue: 'bg-blue-50 border-blue-200 text-blue-700',
+    green: 'bg-green-50 border-green-200 text-green-700',
+    red: 'bg-red-50 border-red-200 text-red-700',
+  };
+
+  return (
+    <div className={`rounded-lg border p-3 ${colorMap[color] || colorMap.gray}`}>
+      <div className="text-xs font-medium opacity-75 uppercase tracking-wide">{label}</div>
+      <div className="text-xl font-bold mt-1">
+        {value}
+        {suffix && <span className="text-xs font-normal ml-1">{suffix}</span>}
+      </div>
+    </div>
   );
 }
