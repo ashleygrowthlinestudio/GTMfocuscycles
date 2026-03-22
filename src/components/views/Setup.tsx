@@ -4,8 +4,9 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import MetricInput from '@/components/shared/MetricInput';
 import HistoricalDataSheet, { isQuarterFilled, generateQuarterSlots, createEmptyQuarter } from '@/components/shared/HistoricalDataSheet';
-import type { ChannelConfig, Month, MonthlyActuals, QuarterlyHistoricalData, RevenueBreakdown, SeasonalityWeights, PlanningMode } from '@/lib/types';
+import type { ChannelConfig, Month, MonthlyActuals, QuarterlyHistoricalData, RevenueBreakdown, SeasonalityWeights, PlanningMode, TargetAllocationMode, TargetAllocations } from '@/lib/types';
 import { DEFAULT_HISTORICAL } from '@/lib/defaults';
+import { formatCurrency } from '@/lib/format';
 
 // ── Channel toggle ───────────────────────────────────────────
 
@@ -41,6 +42,211 @@ function ChannelToggle({
 }
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// ── Target Allocation component ──────────────────────────────
+
+interface TargetAllocationProps {
+  mode: TargetAllocationMode;
+  allocations: TargetAllocations;
+  channelConfig: ChannelConfig;
+  targetARR: number;
+  startingARR: number;
+  filledQuarters: number;
+  historicalQuarters: QuarterlyHistoricalData[];
+  onModeChange: (mode: TargetAllocationMode) => void;
+  onAllocationsChange: (alloc: TargetAllocations) => void;
+}
+
+type AllocChannel = 'inbound' | 'outbound' | 'expansion' | 'churn' | 'newProduct';
+const ALLOC_CHANNELS: { key: AllocChannel; label: string; configKey: keyof ChannelConfig }[] = [
+  { key: 'inbound', label: 'Inbound', configKey: 'hasInbound' },
+  { key: 'outbound', label: 'Outbound', configKey: 'hasOutbound' },
+  { key: 'expansion', label: 'Expansion', configKey: 'hasExpansion' },
+  { key: 'churn', label: 'Churn', configKey: 'hasChurn' },
+  { key: 'newProduct', label: 'New Product', configKey: 'hasNewProduct' },
+];
+
+function computeHistoricalAllocations(
+  quarters: QuarterlyHistoricalData[],
+  cc: ChannelConfig,
+): Record<AllocChannel, number> {
+  const filled = quarters.filter(isQuarterFilled);
+  if (filled.length === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
+
+  let totalIb = 0, totalOb = 0, totalExp = 0, totalChurn = 0, totalNp = 0;
+  for (const q of filled) {
+    totalIb += q.inboundClosedWon;
+    totalOb += q.outboundClosedWon;
+    totalExp += q.expansionRevenue;
+    totalChurn += q.churnRevenue;
+    totalNp += q.newProductClosedWon;
+  }
+
+  const grandTotal = totalIb + totalOb + totalExp + totalChurn + totalNp;
+  if (grandTotal === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
+
+  return {
+    inbound: cc.hasInbound ? Math.round((totalIb / grandTotal) * 10000) / 100 : 0,
+    outbound: cc.hasOutbound ? Math.round((totalOb / grandTotal) * 10000) / 100 : 0,
+    expansion: cc.hasExpansion ? Math.round((totalExp / grandTotal) * 10000) / 100 : 0,
+    churn: cc.hasChurn ? Math.round((totalChurn / grandTotal) * 10000) / 100 : 0,
+    newProduct: cc.hasNewProduct ? Math.round((totalNp / grandTotal) * 10000) / 100 : 0,
+  };
+}
+
+function TargetAllocation({
+  mode, allocations, channelConfig, targetARR, startingARR, filledQuarters,
+  historicalQuarters, onModeChange, onAllocationsChange,
+}: TargetAllocationProps) {
+  const newARR = targetARR - startingARR;
+  const activeChannels = ALLOC_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
+
+  const historicalAlloc = useMemo(
+    () => computeHistoricalAllocations(historicalQuarters, channelConfig),
+    [historicalQuarters, channelConfig],
+  );
+
+  const manualTotal = useMemo(
+    () => activeChannels.reduce((s, ch) => s + (allocations[ch.key] || 0), 0),
+    [allocations, activeChannels],
+  );
+  const manualValid = Math.abs(manualTotal - 100) < 0.01;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <h3 className="text-sm font-semibold text-gray-700 mb-3">Target Allocation</h3>
+
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit mb-4">
+        <button
+          onClick={() => onModeChange('historical')}
+          className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
+            mode === 'historical'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+          }`}
+        >
+          Based on Historicals
+        </button>
+        <button
+          onClick={() => onModeChange('manual')}
+          className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
+            mode === 'manual'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+          }`}
+        >
+          Set the Target
+        </button>
+      </div>
+
+      {mode === 'historical' ? (
+        /* ── Historical mode ── */
+        filledQuarters < 4 ? (
+          <div className="border border-amber-200 rounded-lg p-3 bg-amber-50">
+            <p className="text-sm text-amber-800">
+              Complete at least 4 quarters of historical data to use this mode.
+              {filledQuarters > 0 && ` (${filledQuarters}/4 filled)`}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="text-xs text-gray-500 mb-3">
+              Allocations based on your last {filledQuarters} quarter{filledQuarters !== 1 ? 's' : ''} of historical data.
+            </p>
+            <div className="space-y-2">
+              {activeChannels.map((ch) => {
+                const pct = historicalAlloc[ch.key];
+                const amt = newARR * (pct / 100);
+                return (
+                  <div key={ch.key} className="flex items-center justify-between py-1.5 px-3 rounded bg-gray-50">
+                    <span className="text-sm font-medium text-gray-700">{ch.label}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-gray-500 w-16 text-right">{pct.toFixed(1)}%</span>
+                      <span className="text-sm font-semibold text-gray-900 w-28 text-right">
+                        {formatCurrency(amt)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
+                <span className="text-sm font-semibold text-gray-700">Total</span>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-semibold text-gray-700 w-16 text-right">
+                    {activeChannels.reduce((s, ch) => s + historicalAlloc[ch.key], 0).toFixed(1)}%
+                  </span>
+                  <span className="text-sm font-bold text-gray-900 w-28 text-right">
+                    {formatCurrency(newARR)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
+        /* ── Manual mode ── */
+        <div>
+          <div className="space-y-2">
+            {activeChannels.map((ch) => {
+              const pct = allocations[ch.key] || 0;
+              const amt = newARR * (pct / 100);
+              return (
+                <div key={ch.key} className="flex items-center gap-3 py-1 px-3 rounded bg-gray-50">
+                  <span className="text-sm font-medium text-gray-700 w-28">{ch.label}</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={pct || ''}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        onAllocationsChange({ ...allocations, [ch.key]: Math.max(0, Math.min(100, val)) });
+                      }}
+                      placeholder="0"
+                      step={0.1}
+                      min={0}
+                      max={100}
+                      className="w-20 text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                    <span className="text-xs text-gray-400">%</span>
+                  </div>
+                  <span className="text-sm text-gray-500 ml-auto w-28 text-right">
+                    {formatCurrency(amt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Total row */}
+          <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-200 px-3">
+            <span className="text-sm font-semibold text-gray-700">Total</span>
+            <div className="flex items-center gap-4">
+              <span className={`text-sm font-semibold w-16 text-right ${
+                manualValid ? 'text-green-700' : 'text-red-600'
+              }`}>
+                {manualTotal.toFixed(1)}%
+                {manualValid && <span className="ml-1">&#10003;</span>}
+              </span>
+              <span className="text-sm font-bold text-gray-900 w-28 text-right">
+                {formatCurrency(newARR)}
+              </span>
+            </div>
+          </div>
+
+          {/* Validation */}
+          {!manualValid && manualTotal > 0 && (
+            <div className="mt-3 border border-red-200 rounded-lg p-2.5 bg-red-50">
+              <p className="text-xs text-red-700 font-medium">
+                Allocations must total 100% (currently {manualTotal.toFixed(1)}%)
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Auto-calculate historical averages from quarterly data ───
 
@@ -397,6 +603,19 @@ export default function Setup() {
           <ChannelToggle label="Churn" checked={cc.hasChurn} onChange={(v) => updateChannel('hasChurn', v)} />
         </div>
       </div>
+
+      {/* Target Allocation */}
+      <TargetAllocation
+        mode={plan.targetAllocationMode ?? 'historical'}
+        allocations={plan.targetAllocations ?? { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 }}
+        channelConfig={cc}
+        targetARR={plan.targetARR}
+        startingARR={plan.startingARR}
+        filledQuarters={filledCount}
+        historicalQuarters={historicalQuarters}
+        onModeChange={(m) => dispatch({ type: 'SET_TARGET_ALLOCATION_MODE', payload: m })}
+        onAllocationsChange={(a) => dispatch({ type: 'SET_TARGET_ALLOCATIONS', payload: a })}
+      />
 
       {/* Historical Data Sheet */}
       <HistoricalDataSheet

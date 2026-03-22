@@ -22,6 +22,10 @@ import type {
 
   QuarterlyHistoricalData,
 
+  TargetAllocationMode,
+
+  TargetAllocations,
+
 } from './types';
 
 export const DEFAULT_SEASONALITY: SeasonalityWeights = {
@@ -230,6 +234,16 @@ export const DEFAULT_DETAILED_ACTUALS: MonthlyActuals[] = [];
 
 export const DEFAULT_HISTORICAL_QUARTERS: QuarterlyHistoricalData[] = [];
 
+export const DEFAULT_TARGET_ALLOCATION_MODE: TargetAllocationMode = 'historical';
+
+export const DEFAULT_TARGET_ALLOCATIONS: TargetAllocations = {
+  inbound: 0,
+  outbound: 0,
+  expansion: 0,
+  churn: 0,
+  newProduct: 0,
+};
+
 export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
@@ -278,6 +292,10 @@ export function createDefaultPlan(): GTMPlan {
     currentMonth: DEFAULT_CURRENT_MONTH,
 
     detailedActuals: DEFAULT_DETAILED_ACTUALS,
+
+    targetAllocationMode: DEFAULT_TARGET_ALLOCATION_MODE,
+
+    targetAllocations: DEFAULT_TARGET_ALLOCATIONS,
 
   };
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
-import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, Actuals, PlanningMode, Month, MonthlyActuals, QuarterlyHistoricalData } from '@/lib/types';
+import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, Actuals, PlanningMode, Month, MonthlyActuals, QuarterlyHistoricalData, TargetAllocationMode, TargetAllocations } from '@/lib/types';
 import { createDefaultPlan } from '@/lib/defaults';
 import { savePlan, loadPlan } from '@/lib/storage';
 
@@ -20,6 +20,8 @@ type Action =
   | { type: 'SET_CURRENT_MONTH'; payload: Month }
   | { type: 'SET_DETAILED_ACTUALS'; payload: MonthlyActuals[] }
   | { type: 'SET_HISTORICAL_QUARTERS'; payload: QuarterlyHistoricalData[] }
+  | { type: 'SET_TARGET_ALLOCATION_MODE'; payload: TargetAllocationMode }
+  | { type: 'SET_TARGET_ALLOCATIONS'; payload: TargetAllocations }
   | { type: 'ADD_BET'; payload: StrategicBet }
   | { type: 'UPDATE_BET'; payload: StrategicBet }
   | { type: 'REMOVE_BET'; payload: string }
@@ -53,6 +55,10 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
       return { ...state, detailedActuals: action.payload };
     case 'SET_HISTORICAL_QUARTERS':
       return { ...state, historicalQuarters: action.payload };
+    case 'SET_TARGET_ALLOCATION_MODE':
+      return { ...state, targetAllocationMode: action.payload };
+    case 'SET_TARGET_ALLOCATIONS':
+      return { ...state, targetAllocations: action.payload };
     case 'ADD_BET':
       return { ...state, strategicBets: [...state.strategicBets, action.payload] };
     case 'UPDATE_BET':

@@ -37,6 +37,8 @@ export function loadPlan(): GTMPlan | null {
     if (!plan.currentMonth) plan.currentMonth = (new Date().getMonth() + 1) as import('./types').Month;
     if (!plan.detailedActuals) plan.detailedActuals = [];
     if (!plan.historicalQuarters) plan.historicalQuarters = [];
+    if (!plan.targetAllocationMode) plan.targetAllocationMode = 'historical';
+    if (!plan.targetAllocations) plan.targetAllocations = { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
 
     return plan;
 

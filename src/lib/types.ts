@@ -219,6 +219,17 @@ export interface QuarterlyHistoricalData {
   newProductNewCustomers: number;
 }
 
+// ── Target allocation ────────────────────────────────────────
+export type TargetAllocationMode = 'historical' | 'manual';
+
+export interface TargetAllocations {
+  inbound: number;    // % (0-100)
+  outbound: number;
+  expansion: number;
+  churn: number;
+  newProduct: number;
+}
+
 // ── Top-level plan ────────────────────────────────────────────
 export interface GTMPlan {
   id: string;
@@ -242,6 +253,9 @@ export interface GTMPlan {
   planningMode: PlanningMode;
   currentMonth: Month;
   detailedActuals: MonthlyActuals[];
+
+  targetAllocationMode: TargetAllocationMode;
+  targetAllocations: TargetAllocations;
 }
 
 // ── Gap result ────────────────────────────────────────────────
