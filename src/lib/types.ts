@@ -181,6 +181,44 @@ export interface ChannelConfig {
   hasNewProductHistory: boolean;
 }
 
+// ── Quarterly historical data (Setup sheet) ──────────────────
+export interface QuarterlyHistoricalData {
+  quarterLabel: string;       // e.g. "Q1 2024"
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+  // Inbound
+  inboundHIS: number;
+  inboundHISToPipelineRate: number;
+  inboundQualifiedPipeline: number;
+  inboundWinRate: number;
+  inboundACV: number;
+  inboundSalesCycle: number;
+  inboundClosedWon: number;
+  inboundNewCustomers: number;
+  // Outbound
+  outboundQualifiedPipeline: number;
+  outboundWinRate: number;
+  outboundACV: number;
+  outboundSalesCycle: number;
+  outboundClosedWon: number;
+  outboundNewCustomers: number;
+  // Expansion
+  expansionRevenue: number;
+  expansionRate: number;
+  // Churn
+  churnRevenue: number;
+  churnRate: number;
+  // New Product
+  newProductHIS: number;
+  newProductHISToPipelineRate: number;
+  newProductQualifiedPipeline: number;
+  newProductWinRate: number;
+  newProductACV: number;
+  newProductSalesCycle: number;
+  newProductClosedWon: number;
+  newProductNewCustomers: number;
+}
+
 // ── Top-level plan ────────────────────────────────────────────
 export interface GTMPlan {
   id: string;
@@ -195,6 +233,7 @@ export interface GTMPlan {
   ramp: RampConfig;
 
   historical: RevenueBreakdown;
+  historicalQuarters: QuarterlyHistoricalData[];
 
   channelConfig: ChannelConfig;
   strategicBets: StrategicBet[];

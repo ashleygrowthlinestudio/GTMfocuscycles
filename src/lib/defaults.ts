@@ -20,6 +20,8 @@ import type {
 
   MonthlyActuals,
 
+  QuarterlyHistoricalData,
+
 } from './types';
 
 export const DEFAULT_SEASONALITY: SeasonalityWeights = {
@@ -226,6 +228,8 @@ export const DEFAULT_CURRENT_MONTH: Month = (new Date().getMonth() + 1) as Month
 
 export const DEFAULT_DETAILED_ACTUALS: MonthlyActuals[] = [];
 
+export const DEFAULT_HISTORICAL_QUARTERS: QuarterlyHistoricalData[] = [];
+
 export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
@@ -260,6 +264,8 @@ export function createDefaultPlan(): GTMPlan {
     ramp: DEFAULT_RAMP,
 
     historical: DEFAULT_HISTORICAL,
+
+    historicalQuarters: DEFAULT_HISTORICAL_QUARTERS,
 
     channelConfig: DEFAULT_CHANNEL_CONFIG,
 
