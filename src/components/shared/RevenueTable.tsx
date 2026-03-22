@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown } from '@/lib/types';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals } from '@/lib/types';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 
 interface RevenueTableProps {
@@ -10,12 +10,16 @@ interface RevenueTableProps {
   startingARR: number;
   label?: string;
   targets?: RevenueBreakdown;
+  planningMode?: PlanningMode;
+  currentMonth?: Month;
+  detailedActuals?: MonthlyActuals[];
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
+  const isInYear = planningMode === 'in-year';
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -43,9 +47,9 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
 
       <div className="overflow-x-auto">
         {viewMode === 'quarterly' ? (
-          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} />
+          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} />
         )}
       </div>
     </div>
@@ -253,10 +257,62 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
   return rows;
 }
 
+/* ── Planning mode helpers ────────────────────────────────── */
+
+function ActBadge() {
+  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-green-100 text-green-700 leading-none align-middle">ACT</span>;
+}
+
+function ProjBadge() {
+  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 leading-none align-middle">PROJ</span>;
+}
+
+function getActualForMonth(month: Month, detailedActuals?: MonthlyActuals[]): MonthlyActuals | undefined {
+  return detailedActuals?.find((a) => a.month === month);
+}
+
+/** Map a TableRow getter key to the corresponding MonthlyActuals field */
+function getActualValue(row: TableRow, actual: MonthlyActuals): number | undefined {
+  const map: Record<string, keyof MonthlyActuals> = {
+    'Inbound Closed Won': 'inboundClosedWon',
+    'Outbound Closed Won': 'outboundClosedWon',
+    'New Product Inbound Won': 'newProductInboundClosedWon',
+    'New Product Outbound Won': 'newProductOutboundClosedWon',
+    'Inbound Qualified Pipeline $': 'inboundPipelineCreated',
+    'Outbound Qualified Pipeline $': 'outboundPipelineCreated',
+    'Expansion Revenue': 'expansionRevenue',
+    'Churn Revenue': 'churnRevenue',
+    'Total New ARR': 'totalNewARR',
+    'Cumulative ARR': 'cumulativeARR',
+  };
+  const field = map[row.label];
+  if (field) return actual[field] as number;
+  return undefined;
+}
+
 /* ── Quarterly View ───────────────────────────────────────── */
 
-function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown }) {
+function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[] }) {
   const rows = useMemo(() => buildRows(targets), [targets]);
+  const cm = currentMonth ?? 1;
+
+  // Determine quarter status for badges
+  const quarterMonths: Record<string, Month[]> = {
+    Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12],
+  };
+
+  function quarterBadges(quarter: string) {
+    if (!isInYear) return null;
+    const months = quarterMonths[quarter] || [];
+    const hasActual = months.some((m) => m < cm);
+    const hasProjected = months.some((m) => m >= cm);
+    return (
+      <span>
+        {hasActual && <ActBadge />}
+        {hasProjected && <ProjBadge />}
+      </span>
+    );
+  }
 
   return (
     <table className="w-full text-xs">
@@ -266,7 +322,7 @@ function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: Quarter
           <th className="text-right py-2 px-3 font-medium text-gray-500 w-24">Start</th>
           {quarterly.map((q) => (
             <th key={q.quarter} className="text-right py-2 px-3 font-medium text-gray-500 w-28">
-              {q.quarter}
+              {q.quarter}{quarterBadges(q.quarter)}
             </th>
           ))}
           <th className="text-right py-2 px-3 font-medium text-gray-500 w-28">Total</th>
@@ -274,9 +330,28 @@ function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: Quarter
       </thead>
       <tbody>
         {rows.map((row, idx) => {
+          // For in-year mode, blend actuals into quarterly values
+          let quarterValues: number[] = quarterly.map((q) => row.getQuarterly(q));
+
+          if (isInYear && !row.isSecondary && !row.isConstant) {
+            quarterValues = quarterly.map((q) => {
+              const months = q.months;
+              return months.reduce((sum, m) => {
+                if (m.month < cm) {
+                  const actual = getActualForMonth(m.month as Month, detailedActuals);
+                  if (actual) {
+                    const av = getActualValue(row, actual);
+                    if (av !== undefined) return sum + av;
+                  }
+                }
+                return sum + row.getMonthly(m);
+              }, 0);
+            });
+          }
+
           const total = row.isConstant
-            ? row.getQuarterly(quarterly[0])
-            : quarterly.reduce((s, q) => s + row.getQuarterly(q), 0);
+            ? quarterValues[0]
+            : quarterValues.reduce((s, v) => s + v, 0);
 
           return (
             <tr
@@ -287,9 +362,9 @@ function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: Quarter
               <td className="py-1.5 px-3 text-right text-gray-400">
                 {row.isSecondary ? '' : '—'}
               </td>
-              {quarterly.map((q) => (
-                <td key={q.quarter} className={cellValueClass(row)}>
-                  {row.fmt(row.getQuarterly(q))}
+              {quarterValues.map((val, qi) => (
+                <td key={quarterly[qi].quarter} className={cellValueClass(row)}>
+                  {row.fmt(val)}
                 </td>
               ))}
               <td className={`${cellValueClass(row)} font-medium`}>
@@ -318,7 +393,7 @@ function QuarterlyView({ quarterly, startingARR, targets }: { quarterly: Quarter
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[] }) {
   const rows = useMemo(() => {
     const base = buildRows(targets);
     // Add Cumulative ARR at end
@@ -328,6 +403,8 @@ function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult
     ];
   }, [targets]);
 
+  const cm = currentMonth ?? 1;
+
   return (
     <table className="w-full text-xs">
       <thead>
@@ -336,6 +413,7 @@ function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult
           {monthly.map((m) => (
             <th key={m.month} className="text-right py-2 px-2 font-medium text-gray-500 min-w-[80px]">
               {formatMonthName(m.month)}
+              {isInYear && (m.month < cm ? <ActBadge /> : <ProjBadge />)}
             </th>
           ))}
         </tr>
@@ -349,11 +427,21 @@ function MonthlyView({ monthly, startingARR, targets }: { monthly: MonthlyResult
             <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
               {row.monthlyLabel || row.label}
             </td>
-            {monthly.map((m) => (
-              <td key={m.month} className={cellValueClass(row, true)}>
-                {row.fmt(row.getMonthly(m))}
-              </td>
-            ))}
+            {monthly.map((m) => {
+              let value = row.getMonthly(m);
+              if (isInYear && m.month < cm && !row.isSecondary && !row.isConstant) {
+                const actual = getActualForMonth(m.month as Month, detailedActuals);
+                if (actual) {
+                  const av = getActualValue(row, actual);
+                  if (av !== undefined) value = av;
+                }
+              }
+              return (
+                <td key={m.month} className={cellValueClass(row, true)}>
+                  {row.fmt(value)}
+                </td>
+              );
+            })}
           </tr>
         ))}
       </tbody>

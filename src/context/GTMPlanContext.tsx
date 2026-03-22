@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
-import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, Actuals } from '@/lib/types';
+import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, Actuals, PlanningMode, Month, MonthlyActuals } from '@/lib/types';
 import { createDefaultPlan } from '@/lib/defaults';
 import { savePlan, loadPlan } from '@/lib/storage';
 
@@ -16,6 +16,9 @@ type Action =
   | { type: 'SET_RAMP'; payload: RampConfig }
   | { type: 'SET_CHANNEL_CONFIG'; payload: ChannelConfig }
   | { type: 'SET_ACTUALS'; payload: Actuals }
+  | { type: 'SET_PLANNING_MODE'; payload: PlanningMode }
+  | { type: 'SET_CURRENT_MONTH'; payload: Month }
+  | { type: 'SET_DETAILED_ACTUALS'; payload: MonthlyActuals[] }
   | { type: 'ADD_BET'; payload: StrategicBet }
   | { type: 'UPDATE_BET'; payload: StrategicBet }
   | { type: 'REMOVE_BET'; payload: string }
@@ -41,6 +44,12 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
       return { ...state, channelConfig: action.payload };
     case 'SET_ACTUALS':
       return { ...state, actuals: action.payload };
+    case 'SET_PLANNING_MODE':
+      return { ...state, planningMode: action.payload };
+    case 'SET_CURRENT_MONTH':
+      return { ...state, currentMonth: action.payload };
+    case 'SET_DETAILED_ACTUALS':
+      return { ...state, detailedActuals: action.payload };
     case 'ADD_BET':
       return { ...state, strategicBets: [...state.strategicBets, action.payload] };
     case 'UPDATE_BET':

@@ -32,6 +32,11 @@ export function loadPlan(): GTMPlan | null {
       if (plan.channelConfig.hasChurn === undefined) plan.channelConfig.hasChurn = true;
     }
 
+    // Backfill planning mode fields
+    if (!plan.planningMode) plan.planningMode = 'future-year';
+    if (!plan.currentMonth) plan.currentMonth = (new Date().getMonth() + 1) as import('./types').Month;
+    if (!plan.detailedActuals) plan.detailedActuals = [];
+
     return plan;
 
   } catch {

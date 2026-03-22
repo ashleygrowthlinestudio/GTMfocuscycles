@@ -16,6 +16,10 @@ import type {
 
   Month,
 
+  PlanningMode,
+
+  MonthlyActuals,
+
 } from './types';
 
 export const DEFAULT_SEASONALITY: SeasonalityWeights = {
@@ -216,6 +220,12 @@ export const DEFAULT_ACTUALS: Actuals = {
   monthlyActuals: [],
 };
 
+export const DEFAULT_PLANNING_MODE: PlanningMode = 'future-year';
+
+export const DEFAULT_CURRENT_MONTH: Month = (new Date().getMonth() + 1) as Month;
+
+export const DEFAULT_DETAILED_ACTUALS: MonthlyActuals[] = [];
+
 export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
@@ -256,6 +266,12 @@ export function createDefaultPlan(): GTMPlan {
     strategicBets: [],
 
     actuals: DEFAULT_ACTUALS,
+
+    planningMode: DEFAULT_PLANNING_MODE,
+
+    currentMonth: DEFAULT_CURRENT_MONTH,
+
+    detailedActuals: DEFAULT_DETAILED_ACTUALS,
 
   };
 

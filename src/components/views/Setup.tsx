@@ -5,7 +5,7 @@ import { useGTMPlan } from '@/context/GTMPlanContext';
 import MetricInput from '@/components/shared/MetricInput';
 import FunnelInputs from '@/components/shared/FunnelInputs';
 import SeasonalityEditor from '@/components/shared/SeasonalityEditor';
-import type { ChannelConfig, Month, MonthlyActual } from '@/lib/types';
+import type { ChannelConfig, Month, MonthlyActual, PlanningMode, MonthlyActuals } from '@/lib/types';
 
 function ChannelToggle({
   label,
@@ -92,8 +92,187 @@ export default function Setup() {
     dispatch({ type: 'SET_ACTUALS', payload: { ...actuals, monthlyActuals: existing } });
   }
 
+  // Planning mode helpers
+  const planningMode = plan.planningMode ?? 'future-year';
+  const currentMonthTop = plan.currentMonth ?? (new Date().getMonth() + 1) as Month;
+  const detailedActuals = plan.detailedActuals ?? [];
+
+  const completedMonthsDetailed = Array.from(
+    { length: Math.max(0, currentMonthTop - 1) },
+    (_, i) => (i + 1) as Month,
+  );
+
+  function getDetailedActual(month: Month): MonthlyActuals {
+    return detailedActuals.find((a) => a.month === month) ?? {
+      month,
+      inboundPipelineCreated: 0,
+      outboundPipelineCreated: 0,
+      inboundClosedWon: 0,
+      outboundClosedWon: 0,
+      newProductInboundClosedWon: 0,
+      newProductOutboundClosedWon: 0,
+      expansionRevenue: 0,
+      churnRevenue: 0,
+      totalNewARR: 0,
+      cumulativeARR: 0,
+      inboundWinRate: 0,
+      outboundWinRate: 0,
+      hisToPipelineRate: 0,
+      inboundACV: 0,
+      outboundACV: 0,
+    };
+  }
+
+  function updateDetailedActual(month: Month, field: keyof Omit<MonthlyActuals, 'month'>, value: number) {
+    const existing = [...detailedActuals];
+    const idx = existing.findIndex((a) => a.month === month);
+    const current = getDetailedActual(month);
+    const updated = { ...current, [field]: value };
+    if (idx >= 0) {
+      existing[idx] = updated;
+    } else {
+      existing.push(updated);
+    }
+    dispatch({ type: 'SET_DETAILED_ACTUALS', payload: existing });
+  }
+
   return (
     <div className="space-y-6">
+      {/* Section 0: Planning Mode */}
+      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Planning Mode</h3>
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => dispatch({ type: 'SET_PLANNING_MODE', payload: 'future-year' })}
+            className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
+              planningMode === 'future-year'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+            }`}
+          >
+            Future Year Plan
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_PLANNING_MODE', payload: 'in-year' })}
+            className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
+              planningMode === 'in-year'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+            }`}
+          >
+            In-Year Reforecast
+          </button>
+        </div>
+
+        {planningMode === 'in-year' && (
+          <div className="mt-4 space-y-4">
+            {/* Current Month Selector */}
+            <div className="flex flex-col gap-1 max-w-xs">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Current Month</label>
+              <select
+                value={currentMonthTop}
+                onChange={(e) => dispatch({ type: 'SET_CURRENT_MONTH', payload: parseInt(e.target.value) as Month })}
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={i + 1} value={i + 1}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Monthly Actuals Input Table */}
+            {completedMonthsDetailed.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Actuals (Completed Months)</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 px-2 text-xs font-medium text-gray-500 uppercase sticky left-0 bg-white">Month</th>
+                        {cc.hasInbound && (
+                          <>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">IB Pipeline ($)</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">IB Closed Won ($)</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">IB Win Rate</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">HIS→Pipe Rate</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">IB ACV ($)</th>
+                          </>
+                        )}
+                        {cc.hasOutbound && (
+                          <>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">OB Pipeline ($)</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">OB Closed Won ($)</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">OB Win Rate</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">OB ACV ($)</th>
+                          </>
+                        )}
+                        {cc.hasNewProduct && (
+                          <>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">NP IB Won ($)</th>
+                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">NP OB Won ($)</th>
+                          </>
+                        )}
+                        {cc.hasExpansion && (
+                          <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Expansion ($)</th>
+                        )}
+                        {cc.hasChurn && (
+                          <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Churn ($)</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedMonthsDetailed.map((m) => {
+                        const a = getDetailedActual(m);
+                        return (
+                          <tr key={m} className="border-b border-gray-100">
+                            <td className="py-2 px-2 font-medium text-gray-700 sticky left-0 bg-white">{MONTH_LABELS[m - 1]}</td>
+                            {cc.hasInbound && (
+                              <>
+                                <td className="py-1 px-1"><input type="number" value={a.inboundPipelineCreated} onChange={(e) => updateDetailedActual(m, 'inboundPipelineCreated', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.inboundClosedWon} onChange={(e) => updateDetailedActual(m, 'inboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.inboundWinRate} onChange={(e) => updateDetailedActual(m, 'inboundWinRate', parseFloat(e.target.value) || 0)} step={0.01} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.hisToPipelineRate} onChange={(e) => updateDetailedActual(m, 'hisToPipelineRate', parseFloat(e.target.value) || 0)} step={0.01} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.inboundACV} onChange={(e) => updateDetailedActual(m, 'inboundACV', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                              </>
+                            )}
+                            {cc.hasOutbound && (
+                              <>
+                                <td className="py-1 px-1"><input type="number" value={a.outboundPipelineCreated} onChange={(e) => updateDetailedActual(m, 'outboundPipelineCreated', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.outboundClosedWon} onChange={(e) => updateDetailedActual(m, 'outboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.outboundWinRate} onChange={(e) => updateDetailedActual(m, 'outboundWinRate', parseFloat(e.target.value) || 0)} step={0.01} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.outboundACV} onChange={(e) => updateDetailedActual(m, 'outboundACV', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                              </>
+                            )}
+                            {cc.hasNewProduct && (
+                              <>
+                                <td className="py-1 px-1"><input type="number" value={a.newProductInboundClosedWon} onChange={(e) => updateDetailedActual(m, 'newProductInboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                                <td className="py-1 px-1"><input type="number" value={a.newProductOutboundClosedWon} onChange={(e) => updateDetailedActual(m, 'newProductOutboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                              </>
+                            )}
+                            {cc.hasExpansion && (
+                              <td className="py-1 px-1"><input type="number" value={a.expansionRevenue} onChange={(e) => updateDetailedActual(m, 'expansionRevenue', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            )}
+                            {cc.hasChurn && (
+                              <td className="py-1 px-1"><input type="number" value={a.churnRevenue} onChange={(e) => updateDetailedActual(m, 'churnRevenue', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {completedMonthsDetailed.length === 0 && (
+              <p className="text-sm text-gray-400 italic">
+                Select a current month above February to enter actuals for completed months.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Section 1: Revenue Targets */}
       <div className="border border-gray-200 rounded-lg p-4 bg-white">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Revenue Targets</h3>

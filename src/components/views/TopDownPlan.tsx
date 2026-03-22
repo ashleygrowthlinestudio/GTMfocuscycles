@@ -48,6 +48,9 @@ export default function TopDownPlan() {
         startingARR={plan.startingARR}
         label="Target Revenue Projections"
         targets={effectiveTargets}
+        planningMode={plan.planningMode}
+        currentMonth={plan.currentMonth}
+        detailedActuals={plan.detailedActuals}
       />
     </div>
   );
