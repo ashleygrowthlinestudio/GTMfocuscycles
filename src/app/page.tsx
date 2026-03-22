@@ -8,6 +8,7 @@ import TopDownPlan from '@/components/views/TopDownPlan';
 import HistoricalBenchmarks from '@/components/views/HistoricalBenchmarks';
 import GapAnalysis from '@/components/views/GapAnalysis';
 import StrategicBets from '@/components/views/StrategicBets';
+import ExecutiveSummary from '@/components/views/ExecutiveSummary';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import { isQuarterFilled } from '@/components/shared/HistoricalDataSheet';
 
@@ -64,6 +65,7 @@ export default function Home() {
         {activeTab === 'historical' && <HistoricalBenchmarks />}
         {activeTab === 'gap' && <GapAnalysis />}
         {activeTab === 'bets' && <StrategicBets />}
+        {activeTab === 'summary' && <ExecutiveSummary />}
       </main>
     </div>
   );
