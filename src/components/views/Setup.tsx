@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import MetricInput from '@/components/shared/MetricInput';
 import HistoricalDataSheet, { isQuarterFilled, generateQuarterSlots, createEmptyQuarter } from '@/components/shared/HistoricalDataSheet';
-import type { ChannelConfig, Month, MonthlyActuals, QuarterlyHistoricalData, RevenueBreakdown, SeasonalityWeights, PlanningMode, TargetAllocationMode, TargetAllocations } from '@/lib/types';
+import type { ChannelConfig, Month, MonthlyActuals, QuarterlyHistoricalData, RevenueBreakdown, SeasonalityWeights, PlanningMode, TargetAllocationMode, TargetAllocations, MarketInsight } from '@/lib/types';
 import { DEFAULT_HISTORICAL } from '@/lib/defaults';
 import { formatCurrency } from '@/lib/format';
 
@@ -653,6 +653,345 @@ export default function Setup() {
               ? ` You have ${filledCount} quarter${filledCount === 1 ? '' : 's'} filled so far.`
               : ' No historical data has been entered yet.'}
           </p>
+        </div>
+      )}
+
+      {/* Market Insights & Known Risks */}
+      <MarketInsightsSection />
+    </div>
+  );
+}
+
+// ── Market Insights Section ─────────────────────────────────
+
+const INSIGHT_CHANNEL_OPTIONS: { value: MarketInsight['channel']; label: string }[] = [
+  { value: 'all', label: 'All Channels' },
+  { value: 'inbound', label: 'Inbound' },
+  { value: 'outbound', label: 'Outbound' },
+  { value: 'newProduct', label: 'New Product' },
+  { value: 'expansion', label: 'Expansion' },
+  { value: 'churn', label: 'Churn' },
+];
+
+const INSIGHT_METRIC_OPTIONS: { value: MarketInsight['metric']; label: string }[] = [
+  { value: 'overall', label: 'Overall Revenue' },
+  { value: 'pipeline', label: 'Pipeline Volume' },
+  { value: 'winRate', label: 'Win Rate' },
+  { value: 'churnRate', label: 'Churn Rate' },
+  { value: 'hisVolume', label: 'HIS Volume' },
+  { value: 'acv', label: 'ACV' },
+];
+
+function MarketInsightsSection() {
+  const { plan, dispatch } = useGTMPlan();
+  const insights = plan.marketInsights ?? [];
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form state
+  const [label, setLabel] = useState('');
+  const [description, setDescription] = useState('');
+  const [channel, setChannel] = useState<MarketInsight['channel']>('all');
+  const [metric, setMetric] = useState<MarketInsight['metric']>('overall');
+  const [impactType, setImpactType] = useState<'oneTime' | 'gradual'>('oneTime');
+  const [impactMonth, setImpactMonth] = useState<number>(1);
+  const [impactDurationMonths, setImpactDurationMonths] = useState(3);
+  const [impactPct, setImpactPct] = useState(0);
+
+  function resetForm() {
+    setLabel('');
+    setDescription('');
+    setChannel('all');
+    setMetric('overall');
+    setImpactType('oneTime');
+    setImpactMonth(1);
+    setImpactDurationMonths(3);
+    setImpactPct(0);
+    setEditingId(null);
+    setShowForm(false);
+  }
+
+  function handleSave() {
+    if (!label.trim()) return;
+
+    const insight: MarketInsight = {
+      id: editingId ?? crypto.randomUUID(),
+      label: label.trim(),
+      description: description.trim(),
+      channel,
+      metric,
+      impactType,
+      impactMonth: impactMonth as Month,
+      impactDurationMonths: impactType === 'oneTime' ? 1 : impactDurationMonths,
+      impactPct: impactPct / 100, // convert from % display to decimal
+      enabled: true,
+    };
+
+    if (editingId) {
+      // Preserve enabled state from existing insight
+      const existing = insights.find((i) => i.id === editingId);
+      if (existing) insight.enabled = existing.enabled;
+      dispatch({ type: 'UPDATE_INSIGHT', payload: insight });
+    } else {
+      dispatch({ type: 'ADD_INSIGHT', payload: insight });
+    }
+    resetForm();
+  }
+
+  function startEdit(insight: MarketInsight) {
+    setEditingId(insight.id);
+    setLabel(insight.label);
+    setDescription(insight.description);
+    setChannel(insight.channel);
+    setMetric(insight.metric);
+    setImpactType(insight.impactType);
+    setImpactMonth(insight.impactMonth);
+    setImpactDurationMonths(insight.impactDurationMonths);
+    setImpactPct(Math.round(insight.impactPct * 100));
+    setShowForm(true);
+  }
+
+  const impactLabel = impactPct < 0
+    ? `${Math.abs(impactPct)}% lower than projected (headwind)`
+    : impactPct > 0
+    ? `${impactPct}% higher than projected (tailwind)`
+    : 'No impact';
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">Market Insights & Known Risks</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            What do you know that the data doesn&apos;t show yet? Add gut-feel signals, known upcoming events, or market shifts that should affect your projections.
+          </p>
+        </div>
+        {!showForm && (
+          <button
+            onClick={() => { resetForm(); setShowForm(true); }}
+            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shrink-0"
+          >
+            + Add Insight
+          </button>
+        )}
+      </div>
+
+      {/* Inline Form */}
+      {showForm && (
+        <div className="mt-4 border border-blue-200 rounded-lg p-4 bg-blue-50/50 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Label</label>
+              <input
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Big churn month coming"
+                className="w-full rounded border border-gray-300 py-1.5 px-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Description</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. Company X ($150K) churning in June"
+                className="w-full rounded border border-gray-300 py-1.5 px-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Affects</label>
+              <select
+                value={channel}
+                onChange={(e) => setChannel(e.target.value as MarketInsight['channel'])}
+                className="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+              >
+                {INSIGHT_CHANNEL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Metric Impacted</label>
+              <select
+                value={metric}
+                onChange={(e) => setMetric(e.target.value as MarketInsight['metric'])}
+                className="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+              >
+                {INSIGHT_METRIC_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Starting Month</label>
+              <select
+                value={impactMonth}
+                onChange={(e) => setImpactMonth(parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+              >
+                {MONTH_LABELS.map((m, i) => (
+                  <option key={i + 1} value={i + 1}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Impact Type</label>
+              <div className="flex gap-1 bg-gray-200 rounded-md p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setImpactType('oneTime')}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded font-medium transition-colors ${
+                    impactType === 'oneTime' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
+                  }`}
+                >
+                  One-time
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImpactType('gradual')}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded font-medium transition-colors ${
+                    impactType === 'gradual' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
+                  }`}
+                >
+                  Gradual
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {impactType === 'gradual' && (
+            <div className="max-w-xs">
+              <label className="text-xs font-medium text-gray-600 block mb-1">Duration (months)</label>
+              <input
+                type="number"
+                value={impactDurationMonths}
+                onChange={(e) => setImpactDurationMonths(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))}
+                min={1}
+                max={12}
+                className="w-full rounded border border-gray-300 py-1.5 px-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          )}
+
+          {/* Impact % slider */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">
+              Impact %
+              <span className={`ml-2 font-normal ${impactPct < 0 ? 'text-red-600' : impactPct > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                {impactLabel}
+              </span>
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={-80}
+                max={80}
+                step={5}
+                value={impactPct}
+                onChange={(e) => setImpactPct(parseInt(e.target.value))}
+                className={`flex-1 h-1.5 rounded-lg appearance-none cursor-pointer ${
+                  impactPct < 0 ? 'accent-red-500' : impactPct > 0 ? 'accent-green-500' : 'accent-gray-400'
+                }`}
+                style={{
+                  background: `linear-gradient(to right, #ef4444 0%, #ef4444 50%, #d1d5db 50%, #d1d5db 50%, #22c55e 50%, #22c55e 100%)`,
+                }}
+              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={impactPct}
+                  onChange={(e) => setImpactPct(Math.max(-80, Math.min(80, parseInt(e.target.value) || 0)))}
+                  className={`w-16 text-right rounded border py-1 px-2 text-sm focus:ring-1 outline-none ${
+                    impactPct < 0 ? 'border-red-300 focus:border-red-500 focus:ring-red-500 text-red-700' :
+                    impactPct > 0 ? 'border-green-300 focus:border-green-500 focus:ring-green-500 text-green-700' :
+                    'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                  }`}
+                />
+                <span className="text-xs text-gray-400">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              disabled={!label.trim()}
+              className="px-4 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {editingId ? 'Update Insight' : 'Save Insight'}
+            </button>
+            <button
+              onClick={resetForm}
+              className="px-4 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Saved insight cards */}
+      {insights.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {insights.map((insight) => {
+            const isNeg = insight.impactPct < 0;
+            const borderColor = isNeg ? 'border-red-300' : 'border-green-300';
+            const bgColor = insight.enabled
+              ? isNeg ? 'bg-red-50/50' : 'bg-green-50/50'
+              : 'bg-gray-50';
+            const channelLabel = INSIGHT_CHANNEL_OPTIONS.find((o) => o.value === insight.channel)?.label ?? insight.channel;
+            const metricLabel = INSIGHT_METRIC_OPTIONS.find((o) => o.value === insight.metric)?.label ?? insight.metric;
+            const pctDisplay = Math.round(insight.impactPct * 100);
+            const typeLabel = insight.impactType === 'oneTime' ? 'one-time' : `${insight.impactDurationMonths}mo gradual`;
+            const monthLabel = MONTH_LABELS[(insight.impactMonth ?? 1) - 1];
+
+            return (
+              <div key={insight.id} className={`border rounded-lg p-3 ${borderColor} ${bgColor} ${!insight.enabled ? 'opacity-60' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={insight.enabled}
+                      onChange={() => dispatch({ type: 'TOGGLE_INSIGHT', payload: insight.id })}
+                      className={`mt-0.5 rounded ${isNeg ? 'text-red-600 focus:ring-red-500' : 'text-green-600 focus:ring-green-500'} border-gray-300`}
+                    />
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-medium text-gray-800 truncate">{insight.label}</h4>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {channelLabel} &middot; {metricLabel}{' '}
+                        <span className={isNeg ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                          {pctDisplay > 0 ? '+' : ''}{pctDisplay}%
+                        </span>{' '}
+                        in {monthLabel} ({typeLabel}) — {insight.enabled ? 'enabled' : 'disabled'}
+                      </p>
+                      {insight.description && (
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">{insight.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      onClick={() => startEdit(insight)}
+                      className="text-xs text-gray-400 hover:text-blue-600"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => dispatch({ type: 'REMOVE_INSIGHT', payload: insight.id })}
+                      className="text-xs text-gray-400 hover:text-red-500"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

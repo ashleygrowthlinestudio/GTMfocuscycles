@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap } from '@/lib/engine';
+import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsights, getInsightsForMonth } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
 import type { RampConfig, PipelineDeadline } from '@/lib/types';
@@ -39,6 +39,10 @@ export default function TopDownPlan() {
 
   const [showTimeline, setShowTimeline] = useState(false);
   const [timelineView, setTimelineView] = useState<'quarterly' | 'monthly'>('quarterly');
+  const [includeInsights, setIncludeInsights] = useState(true);
+
+  const enabledInsights = (plan.marketInsights ?? []).filter((i) => i.enabled);
+  const hasInsights = enabledInsights.length > 0;
 
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, cc, 'targets'),
@@ -61,10 +65,18 @@ export default function TopDownPlan() {
     return planModel;
   }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, planModel]);
 
-  const model = useMemo(
+  const cappedModel = useMemo(
     () => capModelAtTarget(uncappedModel, plan.targetARR, plan.startingARR),
     [uncappedModel, plan.targetARR, plan.startingARR],
   );
+
+  // Apply market insights if enabled
+  const model = useMemo(() => {
+    if (includeInsights && hasInsights) {
+      return applyMarketInsights(cappedModel.monthly, enabledInsights, plan.startingARR);
+    }
+    return cappedModel;
+  }, [cappedModel, includeInsights, hasInsights, enabledInsights, plan.startingARR]);
 
   // Pipeline deadlines
   const deadlines = useMemo(
@@ -106,6 +118,40 @@ export default function TopDownPlan() {
         />
       </div>
 
+      {/* Market Insights toggle + banner */}
+      {hasInsights && (
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includeInsights}
+              onClick={() => setIncludeInsights(!includeInsights)}
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 ${
+                includeInsights ? 'bg-amber-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  includeInsights ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
+            <span className="text-xs font-medium text-gray-700">Include Market Insights</span>
+          </label>
+          {includeInsights && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+              <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="text-xs text-amber-700 font-medium">
+                {enabledInsights.length} market insight{enabledInsights.length !== 1 ? 's' : ''} affecting these projections
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Revenue output table */}
       <RevenueTable
         monthly={model.monthly}
@@ -119,6 +165,7 @@ export default function TopDownPlan() {
         planMonthly={isInYear && hasActuals ? planModel.monthly : undefined}
         planQuarterly={isInYear && hasActuals ? planModel.quarterly : undefined}
         pipelineTimingMap={pipelineTimingMap}
+        marketInsights={includeInsights ? enabledInsights : undefined}
       />
 
       {/* Pipeline Creation Timeline (collapsible) */}

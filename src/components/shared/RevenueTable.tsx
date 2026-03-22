@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet } from '@/lib/types';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet, MarketInsight } from '@/lib/types';
 import type { PipelineTimingMap } from '@/lib/engine';
-import { getBetRampPct } from '@/lib/engine';
+import { getBetRampPct, getInsightsForMonth } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 
 interface RevenueTableProps {
@@ -19,11 +19,12 @@ interface RevenueTableProps {
   planQuarterly?: QuarterlyResult[];
   pipelineTimingMap?: PipelineTimingMap;
   bets?: StrategicBet[];
+  marketInsights?: MarketInsight[];
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets, marketInsights }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
   const [showVariance, setShowVariance] = useState(false);
   const isInYear = planningMode === 'in-year';
@@ -69,7 +70,7 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
         {viewMode === 'quarterly' ? (
           <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} bets={bets} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} bets={bets} marketInsights={marketInsights} />
         )}
       </div>
     </div>
@@ -484,7 +485,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap, bets }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap; bets?: StrategicBet[] }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap, bets, marketInsights }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap; bets?: StrategicBet[]; marketInsights?: MarketInsight[] }) {
   const rows = useMemo(() => {
     const base = buildRows(targets);
     // Add Cumulative ARR at end
@@ -501,12 +502,25 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
       <thead>
         <tr className="border-b border-gray-200 bg-gray-50">
           <th className="text-left py-2 px-3 font-medium text-gray-500 sticky left-0 bg-gray-50 w-48">Metric</th>
-          {monthly.map((m) => (
-            <th key={m.month} className="text-right py-2 px-2 font-medium text-gray-500 min-w-[80px]">
-              {formatMonthName(m.month)}
-              {isInYear && (m.month < cm ? <ActBadge /> : <PlanBadge />)}
-            </th>
-          ))}
+          {monthly.map((m) => {
+            const monthInsights = marketInsights ? getInsightsForMonth(marketInsights, m.month) : [];
+            return (
+              <th key={m.month} className="text-right py-2 px-2 font-medium text-gray-500 min-w-[80px]">
+                {formatMonthName(m.month)}
+                {isInYear && (m.month < cm ? <ActBadge /> : <PlanBadge />)}
+                {monthInsights.length > 0 && (
+                  <span
+                    className="inline-block ml-0.5 cursor-help text-amber-500"
+                    title={monthInsights.map((i) => `${i.label}: ${Math.round(i.impactPct * 100)}%`).join('\n')}
+                  >
+                    <svg className="w-3 h-3 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </span>
+                )}
+              </th>
+            );
+          })}
         </tr>
         {/* Ramp indicator row for active bets */}
         {bets && bets.some((b) => b.enabled && (b.rampMonths ?? 3) > 1) && (

@@ -8,6 +8,7 @@ import type {
   QuarterlyResult,
   GapResult,
   StrategicBet,
+  MarketInsight,
   Month,
   Quarter,
   InboundFunnelInputs,
@@ -974,5 +975,154 @@ export function runModelWithActuals(
     endingARR: results[11].cumulativeARR,
     totalNewARRAdded: results.reduce((s, m) => s + m.totalNewARR, 0),
   };
+}
+
+// ── Market Insights ──────────────────────────────────────────
+
+/**
+ * Apply market insights to monthly results as post-processing multipliers.
+ * One-time: applies impactPct as multiplier (e.g. -0.20 means metric × 0.80) in impactMonth only.
+ * Gradual: linearly ramps from 0 to impactPct over impactDurationMonths starting at impactMonth.
+ * Returns a new ModelRun with recalculated cumulative ARR and quarterly rollups.
+ */
+export function applyMarketInsights(
+  monthly: MonthlyResult[],
+  insights: MarketInsight[],
+  startingARR: number,
+): ModelRun {
+  const enabled = insights.filter((i) => i.enabled);
+  if (enabled.length === 0) {
+    const quarterly = rollUpToQuarters(monthly);
+    return { monthly, quarterly, endingARR: monthly[11].cumulativeARR, totalNewARRAdded: monthly.reduce((s, m) => s + m.totalNewARR, 0) };
+  }
+
+  const modified = monthly.map((m) => ({ ...m }));
+
+  for (const insight of enabled) {
+    for (let i = 0; i < 12; i++) {
+      const month = i + 1;
+      let effectPct = 0;
+
+      if (insight.impactType === 'oneTime') {
+        if (month === insight.impactMonth) {
+          effectPct = insight.impactPct;
+        }
+      } else {
+        // Gradual: linear ramp from impactMonth over impactDurationMonths
+        const start = insight.impactMonth;
+        const duration = Math.max(1, insight.impactDurationMonths);
+        if (month >= start && month < start + duration) {
+          const progress = (month - start + 1) / duration;
+          effectPct = insight.impactPct * progress;
+        } else if (month >= start + duration) {
+          effectPct = insight.impactPct;
+        }
+      }
+
+      if (effectPct === 0) continue;
+
+      const multiplier = 1 + effectPct;
+      const m = modified[i];
+      const ch = insight.channel;
+      const metric = insight.metric;
+
+      if (metric === 'pipeline' || metric === 'overall') {
+        if (ch === 'inbound' || ch === 'all') {
+          m.inboundPipelineCreated *= multiplier;
+          m.hisRequired *= multiplier;
+        }
+        if (ch === 'outbound' || ch === 'all') {
+          m.outboundPipelineCreated *= multiplier;
+        }
+        if (ch === 'newProduct' || ch === 'all') {
+          m.newProductInboundPipelineCreated *= multiplier;
+          m.newProductOutboundPipelineCreated *= multiplier;
+          m.newProductHisRequired *= multiplier;
+        }
+      }
+
+      if (metric === 'winRate' || metric === 'overall') {
+        if (ch === 'inbound' || ch === 'all') {
+          m.inboundClosedWon *= multiplier;
+          m.inboundDeals *= multiplier;
+        }
+        if (ch === 'outbound' || ch === 'all') {
+          m.outboundClosedWon *= multiplier;
+          m.outboundDeals *= multiplier;
+        }
+        if (ch === 'newProduct' || ch === 'all') {
+          m.newProductInboundClosedWon *= multiplier;
+          m.newProductOutboundClosedWon *= multiplier;
+          m.newProductInboundDeals *= multiplier;
+          m.newProductOutboundDeals *= multiplier;
+        }
+      }
+
+      if (metric === 'churnRate' || (metric === 'overall' && (ch === 'churn' || ch === 'all'))) {
+        m.churnRevenue *= multiplier;
+      }
+
+      if (metric === 'hisVolume') {
+        if (ch === 'inbound' || ch === 'all') {
+          m.hisRequired *= multiplier;
+          m.inboundPipelineCreated *= multiplier;
+        }
+        if (ch === 'newProduct' || ch === 'all') {
+          m.newProductHisRequired *= multiplier;
+          m.newProductInboundPipelineCreated *= multiplier;
+        }
+      }
+
+      if (metric === 'acv') {
+        if (ch === 'inbound' || ch === 'all') {
+          m.inboundClosedWon *= multiplier;
+        }
+        if (ch === 'outbound' || ch === 'all') {
+          m.outboundClosedWon *= multiplier;
+        }
+        if (ch === 'newProduct' || ch === 'all') {
+          m.newProductInboundClosedWon *= multiplier;
+          m.newProductOutboundClosedWon *= multiplier;
+        }
+      }
+
+      if (metric === 'overall' && (ch === 'expansion' || ch === 'all')) {
+        m.expansionRevenue *= multiplier;
+      }
+    }
+  }
+
+  // Recalculate totalNewARR and cumulativeARR
+  let currentARR = startingARR;
+  for (let i = 0; i < 12; i++) {
+    const m = modified[i];
+    m.totalNewARR =
+      m.inboundClosedWon + m.outboundClosedWon +
+      m.newProductInboundClosedWon + m.newProductOutboundClosedWon +
+      m.expansionRevenue + m.churnRevenue;
+    currentARR += m.totalNewARR;
+    m.cumulativeARR = currentARR;
+  }
+
+  const quarterly = rollUpToQuarters(modified);
+  return {
+    monthly: modified,
+    quarterly,
+    endingARR: modified[11].cumulativeARR,
+    totalNewARRAdded: modified.reduce((s, m) => s + m.totalNewARR, 0),
+  };
+}
+
+/**
+ * Get the list of enabled insights that affect a given month.
+ */
+export function getInsightsForMonth(insights: MarketInsight[], month: number): MarketInsight[] {
+  return insights.filter((i) => {
+    if (!i.enabled) return false;
+    if (i.impactType === 'oneTime') return month === i.impactMonth;
+    const start = i.impactMonth;
+    const end = start + Math.max(1, i.impactDurationMonths) - 1;
+    return month >= start && month <= end;
+  });
 }
 

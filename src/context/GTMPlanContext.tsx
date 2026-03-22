@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
-import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, Actuals, PlanningMode, Month, MonthlyActuals, QuarterlyHistoricalData, TargetAllocationMode, TargetAllocations } from '@/lib/types';
+import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, MarketInsight, Actuals, PlanningMode, Month, MonthlyActuals, QuarterlyHistoricalData, TargetAllocationMode, TargetAllocations } from '@/lib/types';
 import { createDefaultPlan } from '@/lib/defaults';
 import { savePlan, loadPlan } from '@/lib/storage';
 
@@ -26,6 +26,10 @@ type Action =
   | { type: 'UPDATE_BET'; payload: StrategicBet }
   | { type: 'REMOVE_BET'; payload: string }
   | { type: 'TOGGLE_BET'; payload: string }
+  | { type: 'ADD_INSIGHT'; payload: MarketInsight }
+  | { type: 'UPDATE_INSIGHT'; payload: MarketInsight }
+  | { type: 'REMOVE_INSIGHT'; payload: string }
+  | { type: 'TOGGLE_INSIGHT'; payload: string }
   | { type: 'LOAD_PLAN'; payload: GTMPlan }
   | { type: 'RESET' };
 
@@ -87,6 +91,27 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
         ...state,
         strategicBets: state.strategicBets.map((b) =>
           b.id === action.payload ? { ...b, enabled: !b.enabled } : b,
+        ),
+      };
+    case 'ADD_INSIGHT':
+      return { ...state, marketInsights: [...(state.marketInsights ?? []), action.payload] };
+    case 'UPDATE_INSIGHT':
+      return {
+        ...state,
+        marketInsights: (state.marketInsights ?? []).map((i) =>
+          i.id === action.payload.id ? action.payload : i,
+        ),
+      };
+    case 'REMOVE_INSIGHT':
+      return {
+        ...state,
+        marketInsights: (state.marketInsights ?? []).filter((i) => i.id !== action.payload),
+      };
+    case 'TOGGLE_INSIGHT':
+      return {
+        ...state,
+        marketInsights: (state.marketInsights ?? []).map((i) =>
+          i.id === action.payload ? { ...i, enabled: !i.enabled } : i,
         ),
       };
     case 'LOAD_PLAN':

@@ -26,6 +26,8 @@ import type {
 
   TargetAllocations,
 
+  MarketInsight,
+
 } from './types';
 
 export const DEFAULT_SEASONALITY: SeasonalityWeights = {
@@ -244,6 +246,8 @@ export const DEFAULT_TARGET_ALLOCATIONS: TargetAllocations = {
   newProduct: 0,
 };
 
+export const DEFAULT_MARKET_INSIGHTS: MarketInsight[] = [];
+
 export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInbound: true,
   hasOutbound: true,
@@ -284,6 +288,8 @@ export function createDefaultPlan(): GTMPlan {
     channelConfig: DEFAULT_CHANNEL_CONFIG,
 
     strategicBets: [],
+
+    marketInsights: DEFAULT_MARKET_INSIGHTS,
 
     actuals: DEFAULT_ACTUALS,
 

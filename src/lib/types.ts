@@ -267,6 +267,7 @@ export interface GTMPlan {
 
   channelConfig: ChannelConfig;
   strategicBets: StrategicBet[];
+  marketInsights: MarketInsight[];
   actuals: Actuals;
 
   planningMode: PlanningMode;
@@ -275,6 +276,20 @@ export interface GTMPlan {
 
   targetAllocationMode: TargetAllocationMode;
   targetAllocations: TargetAllocations;
+}
+
+// ── Market insight ───────────────────────────────────────────
+export interface MarketInsight {
+  id: string;
+  label: string;
+  description: string;
+  channel: 'inbound' | 'outbound' | 'newProduct' | 'expansion' | 'churn' | 'all';
+  metric: 'pipeline' | 'winRate' | 'churnRate' | 'hisVolume' | 'acv' | 'overall';
+  impactType: 'oneTime' | 'gradual';
+  impactMonth: Month;
+  impactDurationMonths: number;
+  impactPct: number; // negative = headwind, positive = tailwind e.g. -0.20 = 20% decline
+  enabled: boolean;
 }
 
 // ── Gap result ────────────────────────────────────────────────
