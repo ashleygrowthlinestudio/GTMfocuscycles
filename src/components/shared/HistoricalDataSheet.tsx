@@ -222,22 +222,6 @@ export default function HistoricalDataSheet({ historicalQuarters, channelConfig,
       const updated = quarters.map((q, i) => {
         if (i !== qi) return q;
         const patched = { ...q, [field]: value };
-        // Auto-calculate ACV from Closed Won / New Customers if applicable
-        if (field === 'inboundClosedWon' || field === 'inboundNewCustomers') {
-          if (patched.inboundNewCustomers > 0 && patched.inboundACV === 0) {
-            patched.inboundACV = patched.inboundClosedWon / patched.inboundNewCustomers;
-          }
-        }
-        if (field === 'outboundClosedWon' || field === 'outboundNewCustomers') {
-          if (patched.outboundNewCustomers > 0 && patched.outboundACV === 0) {
-            patched.outboundACV = patched.outboundClosedWon / patched.outboundNewCustomers;
-          }
-        }
-        if (field === 'newProductClosedWon' || field === 'newProductNewCustomers') {
-          if (patched.newProductNewCustomers > 0 && patched.newProductACV === 0) {
-            patched.newProductACV = patched.newProductClosedWon / patched.newProductNewCustomers;
-          }
-        }
         return patched;
       });
       onChange(updated);

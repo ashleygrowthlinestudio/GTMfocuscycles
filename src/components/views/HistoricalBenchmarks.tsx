@@ -10,34 +10,41 @@ import type { QuarterlyHistoricalData, SeasonalityWeights, RampConfig, RevenueBr
 
 // ── Build RevenueBreakdown from averaged historical quarters ──
 
+function clampSalesCycle(v: number): number {
+  // If value > 18, likely entered in days — convert to months; then clamp to [0, 18]
+  if (v > 18) return Math.min(v / 30, 18);
+  return Math.max(0, v);
+}
+
 function buildHistoricalBreakdown(quarters: QuarterlyHistoricalData[]): RevenueBreakdown {
   const filled = quarters.filter(isQuarterFilled);
-  const n = filled.length || 1;
 
   const avg = (getter: (q: QuarterlyHistoricalData) => number) => {
     const vals = filled.map(getter).filter((v) => v > 0);
     return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
   };
 
-  // Quarterly values → monthly: divide volumes/pipeline/closed-won by 3
+  // Quarterly values → monthly: divide volumes/pipeline by 3
   const ibHISMonthly = avg((q) => q.inboundHIS) / 3;
   const ibHISToPipe = avg((q) => q.inboundHISToPipelineRate);
   const ibWinRate = avg((q) => q.inboundWinRate);
   const ibACV = avg((q) => q.inboundACV);
-  const ibSalesCycle = avg((q) => q.inboundSalesCycle);
+  const ibSalesCycle = clampSalesCycle(avg((q) => q.inboundSalesCycle));
 
   const obPipeMonthly = avg((q) => q.outboundQualifiedPipeline) / 3;
   const obWinRate = avg((q) => q.outboundWinRate);
   const obACV = avg((q) => q.outboundACV);
-  const obSalesCycle = avg((q) => q.outboundSalesCycle);
+  const obSalesCycle = clampSalesCycle(avg((q) => q.outboundSalesCycle));
 
   const npHISMonthly = avg((q) => q.newProductHIS) / 3;
   const npHISToPipe = avg((q) => q.newProductHISToPipelineRate);
   const npWinRate = avg((q) => q.newProductWinRate);
   const npACV = avg((q) => q.newProductACV);
-  const npSalesCycle = avg((q) => q.newProductSalesCycle);
+  const npSalesCycle = clampSalesCycle(avg((q) => q.newProductSalesCycle));
 
-  const avgChurnRate = avg((q) => q.churnRate);
+  // churnRate from quarters is quarterly — convert to monthly (divide by 3)
+  const avgQuarterlyChurnRate = avg((q) => q.churnRate);
+  const monthlyChurnRate = avgQuarterlyChurnRate / 3;
 
   return {
     newBusiness: {
@@ -70,8 +77,13 @@ function buildHistoricalBreakdown(quarters: QuarterlyHistoricalData[]): RevenueB
         salesCycleMonths: 0,
       },
     },
-    expansion: { pipelineMonthly: avg((q) => q.expansionPipeline) / 3, winRate: avg((q) => q.expansionWinRate), acv: avg((q) => q.expansionACV), salesCycleMonths: avg((q) => q.expansionSalesCycle) },
-    churn: { monthlyChurnRate: avgChurnRate },
+    expansion: {
+      pipelineMonthly: avg((q) => q.expansionPipeline) / 3,
+      winRate: avg((q) => q.expansionWinRate),
+      acv: avg((q) => q.expansionACV),
+      salesCycleMonths: clampSalesCycle(avg((q) => q.expansionSalesCycle)),
+    },
+    churn: { monthlyChurnRate },
   };
 }
 
@@ -128,17 +140,23 @@ function computeQoQTrend(quarters: QuarterlyHistoricalData[], getter: (q: Quarte
   for (let i = 1; i < sorted.length; i++) {
     const prev = getter(sorted[i - 1]);
     const curr = getter(sorted[i]);
-    if (prev > 0) {
+    // Guard: skip if previous value is < $100 or 0 to avoid divide-by-near-zero
+    if (prev >= 100) {
       changes.push((curr - prev) / prev);
     }
   }
 
   if (changes.length === 0) {
-    return { avgPctChange: 0, direction: 'flat', label: '→ Flat', color: 'text-gray-400' };
+    return { avgPctChange: 0, direction: 'flat', label: '— (insufficient data)', color: 'text-gray-400' };
   }
 
   const avg = changes.reduce((s, v) => s + v, 0) / changes.length;
   const pct = Math.round(avg * 1000) / 10; // one decimal
+
+  // Guard: if resulting % is unrealistically large (>500%), show insufficient data
+  if (Math.abs(pct) > 500) {
+    return { avgPctChange: pct, direction: 'flat', label: '— (insufficient data)', color: 'text-gray-400' };
+  }
 
   if (Math.abs(pct) < 1) {
     return { avgPctChange: pct, direction: 'flat', label: '→ Flat', color: 'text-gray-400' };
@@ -250,7 +268,7 @@ function ActBadge() {
 }
 
 function ProjBadge() {
-  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 leading-none align-middle">PROJ</span>;
+  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 leading-none align-middle">PLAN</span>;
 }
 
 function HBClockIcon({ status, tooltip }: { status: 'green' | 'amber' | 'red'; tooltip: string }) {

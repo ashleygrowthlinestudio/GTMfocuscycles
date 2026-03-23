@@ -327,6 +327,12 @@ function TargetAllocation({
 
 // ── Auto-calculate historical averages from quarterly data ───
 
+function clampSalesCycle(v: number): number {
+  // If value > 18, likely entered in days — convert to months; then clamp to [0, 18]
+  if (v > 18) return Math.min(v / 30, 18);
+  return Math.max(0, v);
+}
+
 function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): RevenueBreakdown | null {
   const filled = quarters.filter(isQuarterFilled);
   if (filled.length < 4) return null;
@@ -336,6 +342,10 @@ function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): Rev
     return values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 0;
   };
 
+  // churnRate from quarters is quarterly — convert to monthly (divide by 3)
+  const avgQuarterlyChurnRate = avg('churnRate');
+  const monthlyChurnRate = avgQuarterlyChurnRate / 3;
+
   return {
     newBusiness: {
       inbound: {
@@ -343,23 +353,23 @@ function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): Rev
         hisToPipelineRate: avg('inboundHISToPipelineRate'),
         winRate: avg('inboundWinRate'),
         acv: avg('inboundACV'),
-        salesCycleMonths: avg('inboundSalesCycle'),
+        salesCycleMonths: clampSalesCycle(avg('inboundSalesCycle')),
       },
       outbound: {
         pipelineMonthly: avg('outboundQualifiedPipeline') / 3,
         winRate: avg('outboundWinRate'),
         acv: avg('outboundACV'),
-        salesCycleMonths: avg('outboundSalesCycle'),
+        salesCycleMonths: clampSalesCycle(avg('outboundSalesCycle')),
       },
     },
     expansion: {
       pipelineMonthly: avg('expansionPipeline') / 3,
       winRate: avg('expansionWinRate'),
       acv: avg('expansionACV'),
-      salesCycleMonths: avg('expansionSalesCycle'),
+      salesCycleMonths: clampSalesCycle(avg('expansionSalesCycle')),
     },
     churn: {
-      monthlyChurnRate: avg('churnRate'),
+      monthlyChurnRate,
     },
     newProduct: {
       inbound: {
@@ -367,13 +377,13 @@ function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): Rev
         hisToPipelineRate: avg('newProductHISToPipelineRate'),
         winRate: avg('newProductWinRate'),
         acv: avg('newProductACV'),
-        salesCycleMonths: avg('newProductSalesCycle'),
+        salesCycleMonths: clampSalesCycle(avg('newProductSalesCycle')),
       },
       outbound: {
         pipelineMonthly: avg('newProductQualifiedPipeline') / 3,
         winRate: avg('newProductWinRate'),
         acv: avg('newProductACV'),
-        salesCycleMonths: avg('newProductSalesCycle'),
+        salesCycleMonths: clampSalesCycle(avg('newProductSalesCycle')),
       },
     },
   };
