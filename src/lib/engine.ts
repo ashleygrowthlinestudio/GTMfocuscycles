@@ -310,31 +310,37 @@ export function runStatusQuoModel(inputs: {
   actuals?: ActualMonth[];
   currentMonth?: number;
   channelConfig: ChannelConfig;
+  bets?: StrategicBet[];
 }): EngineModelRun {
   const {
-    avgMonthlyInboundPipeline,
-    avgInboundWinRate,
-    avgInboundACV,
-    avgInboundSalesCycle,
-    avgMonthlyHIS,
-    avgInboundHisToPipelineRate,
-    avgMonthlyOutboundPipeline,
-    avgOutboundWinRate,
-    avgOutboundACV,
-    avgOutboundSalesCycle,
-    avgExpansionPipeline,
-    avgExpansionWinRate,
-    avgExpansionACV,
-    avgExpansionSalesCycle,
-    avgNewProductPipeline,
-    avgNewProductWinRate,
-    avgNewProductACV,
-    avgNewProductSalesCycle,
-    monthlyChurnRate,
     startingARR,
     actuals,
     currentMonth,
+    bets,
   } = inputs;
+
+  // Build baseline rates object for per-month bet application
+  const baseRates = {
+    avgMonthlyInboundPipeline: inputs.avgMonthlyInboundPipeline,
+    avgInboundWinRate: inputs.avgInboundWinRate,
+    avgInboundACV: inputs.avgInboundACV,
+    avgInboundSalesCycle: inputs.avgInboundSalesCycle,
+    avgMonthlyHIS: inputs.avgMonthlyHIS,
+    avgInboundHisToPipelineRate: inputs.avgInboundHisToPipelineRate,
+    avgMonthlyOutboundPipeline: inputs.avgMonthlyOutboundPipeline,
+    avgOutboundWinRate: inputs.avgOutboundWinRate,
+    avgOutboundACV: inputs.avgOutboundACV,
+    avgOutboundSalesCycle: inputs.avgOutboundSalesCycle,
+    avgExpansionPipeline: inputs.avgExpansionPipeline,
+    avgExpansionWinRate: inputs.avgExpansionWinRate,
+    avgExpansionACV: inputs.avgExpansionACV,
+    avgExpansionSalesCycle: inputs.avgExpansionSalesCycle,
+    avgNewProductPipeline: inputs.avgNewProductPipeline,
+    avgNewProductWinRate: inputs.avgNewProductWinRate,
+    avgNewProductACV: inputs.avgNewProductACV,
+    avgNewProductSalesCycle: inputs.avgNewProductSalesCycle,
+    monthlyChurnRate: inputs.monthlyChurnRate,
+  };
 
   const monthly: EngineMonthlyResult[] = [];
   let currentARR = startingARR;
@@ -375,19 +381,19 @@ export function runStatusQuoModel(inputs: {
       row.newProductDeals = actualForMonth.newProductDeals;
 
       // Store rates
-      row.inboundWinRate = avgInboundWinRate;
-      row.outboundWinRate = avgOutboundWinRate;
-      row.expansionWinRate = avgExpansionWinRate;
-      row.newProductWinRate = avgNewProductWinRate;
-      row.inboundACV = avgInboundACV;
-      row.outboundACV = avgOutboundACV;
-      row.expansionACV = avgExpansionACV;
-      row.newProductACV = avgNewProductACV;
-      row.inboundSalesCycle = avgInboundSalesCycle;
-      row.outboundSalesCycle = avgOutboundSalesCycle;
-      row.expansionSalesCycle = avgExpansionSalesCycle;
-      row.newProductSalesCycle = avgNewProductSalesCycle;
-      row.inboundHisToPipelineRate = avgInboundHisToPipelineRate;
+      row.inboundWinRate = baseRates.avgInboundWinRate;
+      row.outboundWinRate = baseRates.avgOutboundWinRate;
+      row.expansionWinRate = baseRates.avgExpansionWinRate;
+      row.newProductWinRate = baseRates.avgNewProductWinRate;
+      row.inboundACV = baseRates.avgInboundACV;
+      row.outboundACV = baseRates.avgOutboundACV;
+      row.expansionACV = baseRates.avgExpansionACV;
+      row.newProductACV = baseRates.avgNewProductACV;
+      row.inboundSalesCycle = baseRates.avgInboundSalesCycle;
+      row.outboundSalesCycle = baseRates.avgOutboundSalesCycle;
+      row.expansionSalesCycle = baseRates.avgExpansionSalesCycle;
+      row.newProductSalesCycle = baseRates.avgNewProductSalesCycle;
+      row.inboundHisToPipelineRate = baseRates.avgInboundHisToPipelineRate;
 
       currentARR += row.totalNewARR;
       row.cumulativeARR = currentARR;
@@ -402,47 +408,72 @@ export function runStatusQuoModel(inputs: {
       continue;
     }
 
-    // Projected month
+    // Projected month — apply per-month bet ramp if bets are provided
+    const r = (bets && bets.length > 0)
+      ? applyBetsToRates(baseRates as unknown as Record<string, number>, bets, monthNum)
+      : baseRates;
+
+    const mInboundPipeline = r.avgMonthlyInboundPipeline;
+    const mOutboundPipeline = r.avgMonthlyOutboundPipeline;
+    const mExpansionPipeline = r.avgExpansionPipeline;
+    const mNewProductPipeline = r.avgNewProductPipeline;
+    const mInboundWinRate = r.avgInboundWinRate;
+    const mOutboundWinRate = r.avgOutboundWinRate;
+    const mExpansionWinRate = r.avgExpansionWinRate;
+    const mNewProductWinRate = r.avgNewProductWinRate;
+    const mInboundACV = r.avgInboundACV;
+    const mOutboundACV = r.avgOutboundACV;
+    const mExpansionACV = r.avgExpansionACV;
+    const mNewProductACV = r.avgNewProductACV;
+    const mInboundSalesCycle = r.avgInboundSalesCycle;
+    const mOutboundSalesCycle = r.avgOutboundSalesCycle;
+    const mExpansionSalesCycle = r.avgExpansionSalesCycle;
+    const mNewProductSalesCycle = r.avgNewProductSalesCycle;
+    const mMonthlyChurnRate = r.monthlyChurnRate;
+    const mMonthlyHIS = r.avgMonthlyHIS;
+    const mInboundHisToPipelineRate = r.avgInboundHisToPipelineRate;
+
     const row = makeEmptyMonth(monthNum);
 
-    // Pipeline creation
-    inboundPipelineByMonth[i] = avgMonthlyInboundPipeline;
-    outboundPipelineByMonth[i] = avgMonthlyOutboundPipeline;
-    expansionPipelineByMonth[i] = avgExpansionPipeline;
-    newProductPipelineByMonth[i] = avgNewProductPipeline;
+    // Pipeline creation (uses this month's possibly-improved rates)
+    inboundPipelineByMonth[i] = mInboundPipeline;
+    outboundPipelineByMonth[i] = mOutboundPipeline;
+    expansionPipelineByMonth[i] = mExpansionPipeline;
+    newProductPipelineByMonth[i] = mNewProductPipeline;
 
-    row.inboundPipelineCreated = avgMonthlyInboundPipeline;
-    row.outboundPipelineCreated = avgMonthlyOutboundPipeline;
-    row.expansionPipelineCreated = avgExpansionPipeline;
-    row.newProductPipelineCreated = avgNewProductPipeline;
+    row.inboundPipelineCreated = mInboundPipeline;
+    row.outboundPipelineCreated = mOutboundPipeline;
+    row.expansionPipelineCreated = mExpansionPipeline;
+    row.newProductPipelineCreated = mNewProductPipeline;
 
     // Pipeline waterfall — closed won from pipeline created N months ago
-    const inboundCloseIdx = i - Math.round(avgInboundSalesCycle);
+    // Win rate at close time = this month's rate (since the deal closes now)
+    const inboundCloseIdx = i - Math.round(mInboundSalesCycle);
     row.inboundClosedWon =
       inboundCloseIdx >= 0
-        ? inboundPipelineByMonth[inboundCloseIdx] * avgInboundWinRate
+        ? inboundPipelineByMonth[inboundCloseIdx] * mInboundWinRate
         : 0;
 
-    const outboundCloseIdx = i - Math.round(avgOutboundSalesCycle);
+    const outboundCloseIdx = i - Math.round(mOutboundSalesCycle);
     row.outboundClosedWon =
       outboundCloseIdx >= 0
-        ? outboundPipelineByMonth[outboundCloseIdx] * avgOutboundWinRate
+        ? outboundPipelineByMonth[outboundCloseIdx] * mOutboundWinRate
         : 0;
 
-    const expansionCloseIdx = i - Math.round(avgExpansionSalesCycle);
+    const expansionCloseIdx = i - Math.round(mExpansionSalesCycle);
     row.expansionRevenue =
       expansionCloseIdx >= 0
-        ? expansionPipelineByMonth[expansionCloseIdx] * avgExpansionWinRate
+        ? expansionPipelineByMonth[expansionCloseIdx] * mExpansionWinRate
         : 0;
 
-    const newProductCloseIdx = i - Math.round(avgNewProductSalesCycle);
+    const newProductCloseIdx = i - Math.round(mNewProductSalesCycle);
     row.newProductClosedWon =
       newProductCloseIdx >= 0
-        ? newProductPipelineByMonth[newProductCloseIdx] * avgNewProductWinRate
+        ? newProductPipelineByMonth[newProductCloseIdx] * mNewProductWinRate
         : 0;
 
     // Churn
-    row.churnRevenue = -(currentARR * monthlyChurnRate);
+    row.churnRevenue = -(currentARR * mMonthlyChurnRate);
 
     // Total
     row.totalNewARR =
@@ -456,26 +487,26 @@ export function runStatusQuoModel(inputs: {
     row.cumulativeARR = currentARR;
 
     // Back-calculate
-    row.inboundHIS = avgMonthlyHIS;
-    row.inboundDeals = safeDivide(row.inboundClosedWon, avgInboundACV);
-    row.outboundDeals = safeDivide(row.outboundClosedWon, avgOutboundACV);
-    row.expansionDeals = safeDivide(row.expansionRevenue, avgExpansionACV);
-    row.newProductDeals = safeDivide(row.newProductClosedWon, avgNewProductACV);
+    row.inboundHIS = mMonthlyHIS;
+    row.inboundDeals = safeDivide(row.inboundClosedWon, mInboundACV);
+    row.outboundDeals = safeDivide(row.outboundClosedWon, mOutboundACV);
+    row.expansionDeals = safeDivide(row.expansionRevenue, mExpansionACV);
+    row.newProductDeals = safeDivide(row.newProductClosedWon, mNewProductACV);
 
-    // Store rates
-    row.inboundWinRate = avgInboundWinRate;
-    row.outboundWinRate = avgOutboundWinRate;
-    row.expansionWinRate = avgExpansionWinRate;
-    row.newProductWinRate = avgNewProductWinRate;
-    row.inboundACV = avgInboundACV;
-    row.outboundACV = avgOutboundACV;
-    row.expansionACV = avgExpansionACV;
-    row.newProductACV = avgNewProductACV;
-    row.inboundSalesCycle = avgInboundSalesCycle;
-    row.outboundSalesCycle = avgOutboundSalesCycle;
-    row.expansionSalesCycle = avgExpansionSalesCycle;
-    row.newProductSalesCycle = avgNewProductSalesCycle;
-    row.inboundHisToPipelineRate = avgInboundHisToPipelineRate;
+    // Store rates (this month's effective rates)
+    row.inboundWinRate = mInboundWinRate;
+    row.outboundWinRate = mOutboundWinRate;
+    row.expansionWinRate = mExpansionWinRate;
+    row.newProductWinRate = mNewProductWinRate;
+    row.inboundACV = mInboundACV;
+    row.outboundACV = mOutboundACV;
+    row.expansionACV = mExpansionACV;
+    row.newProductACV = mNewProductACV;
+    row.inboundSalesCycle = mInboundSalesCycle;
+    row.outboundSalesCycle = mOutboundSalesCycle;
+    row.expansionSalesCycle = mExpansionSalesCycle;
+    row.newProductSalesCycle = mNewProductSalesCycle;
+    row.inboundHisToPipelineRate = mInboundHisToPipelineRate;
 
     monthly.push(row);
   }

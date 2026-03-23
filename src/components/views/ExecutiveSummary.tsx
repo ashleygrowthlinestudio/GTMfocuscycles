@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runTopDownModel, calcHistoricalAverages, runStatusQuoModel, applyBetsToRates } from '@/lib/engine';
+import { runTopDownModel, calcHistoricalAverages, runStatusQuoModel } from '@/lib/engine';
 import type { EngineMonthlyResult, EngineQuarterlyResult, ActualMonth } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
 import type { RevenueBreakdown, MonthlyActuals } from '@/lib/types';
@@ -119,36 +119,20 @@ export default function ExecutiveSummary() {
     [avgs, plan.startingARR, actuals, cm, cc, targets.churn.monthlyChurnRate],
   );
 
-  // With Bets model — SQ with rates modified by applyBetsToRates
+  // With Bets model — SQ with per-month bet ramp applied inside the model
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
-  const withBetsModel = useMemo(() => {
-    const modifiedRates = applyBetsToRates(avgs as unknown as Record<string, number>, plan.strategicBets, cm);
-    return runStatusQuoModel({
-      avgMonthlyInboundPipeline: modifiedRates.avgMonthlyInboundPipeline ?? avgs.avgMonthlyInboundPipeline,
-      avgInboundWinRate: modifiedRates.avgInboundWinRate ?? avgs.avgInboundWinRate,
-      avgInboundACV: modifiedRates.avgInboundACV ?? avgs.avgInboundACV,
-      avgInboundSalesCycle: modifiedRates.avgInboundSalesCycle ?? avgs.avgInboundSalesCycle,
-      avgMonthlyHIS: modifiedRates.avgMonthlyHIS ?? avgs.avgMonthlyHIS,
-      avgInboundHisToPipelineRate: modifiedRates.avgInboundHisToPipelineRate ?? avgs.avgInboundHisToPipelineRate,
-      avgMonthlyOutboundPipeline: modifiedRates.avgMonthlyOutboundPipeline ?? avgs.avgMonthlyOutboundPipeline,
-      avgOutboundWinRate: modifiedRates.avgOutboundWinRate ?? avgs.avgOutboundWinRate,
-      avgOutboundACV: modifiedRates.avgOutboundACV ?? avgs.avgOutboundACV,
-      avgOutboundSalesCycle: modifiedRates.avgOutboundSalesCycle ?? avgs.avgOutboundSalesCycle,
-      avgExpansionPipeline: modifiedRates.avgExpansionPipeline ?? avgs.avgExpansionPipeline,
-      avgExpansionWinRate: modifiedRates.avgExpansionWinRate ?? avgs.avgExpansionWinRate,
-      avgExpansionACV: modifiedRates.avgExpansionACV ?? avgs.avgExpansionACV,
-      avgExpansionSalesCycle: modifiedRates.avgExpansionSalesCycle ?? avgs.avgExpansionSalesCycle,
-      avgNewProductPipeline: modifiedRates.avgNewProductPipeline ?? avgs.avgNewProductPipeline,
-      avgNewProductWinRate: modifiedRates.avgNewProductWinRate ?? avgs.avgNewProductWinRate,
-      avgNewProductACV: modifiedRates.avgNewProductACV ?? avgs.avgNewProductACV,
-      avgNewProductSalesCycle: modifiedRates.avgNewProductSalesCycle ?? avgs.avgNewProductSalesCycle,
-      monthlyChurnRate: (modifiedRates.monthlyChurnRate ?? avgs.monthlyChurnRate) || targets.churn.monthlyChurnRate,
+  const withBetsModel = useMemo(
+    () => runStatusQuoModel({
+      ...avgs,
+      monthlyChurnRate: avgs.monthlyChurnRate || targets.churn.monthlyChurnRate,
       startingARR: plan.startingARR,
       actuals,
       currentMonth: cm,
       channelConfig: cc,
-    });
-  }, [avgs, plan.strategicBets, cm, plan.startingARR, actuals, cc, targets.churn.monthlyChurnRate]);
+      bets: plan.strategicBets,
+    }),
+    [avgs, plan.strategicBets, cm, plan.startingARR, actuals, cc, targets.churn.monthlyChurnRate],
+  );
 
   // Effective planModel for display (falls back to sqModel when allocations aren't set)
   const effectivePlanModel = planModel ?? sqModel;
