@@ -120,7 +120,7 @@ function TargetAllocation({
   mode, allocations, channelConfig, targetARR, startingARR, filledQuarters,
   historicalQuarters, monthlyChurnRate, onModeChange, onAllocationsChange,
 }: TargetAllocationProps) {
-  const newARR = targetARR - startingARR;
+  const newARR = targetARR - startingARR; // net ARR gap
   const activePositive = POSITIVE_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
   const activeEmerging = EMERGING_ALLOC_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
   const hasChurn = channelConfig.hasChurn;
@@ -140,6 +140,9 @@ function TargetAllocation({
 
   // Expected churn — read-only, derived from churn rate × starting ARR
   const expectedAnnualChurn = hasChurn ? startingARR * monthlyChurnRate * 12 : 0;
+
+  // Gross target = ARR gap + churn to recover (channels must produce this much)
+  const grossTarget = newARR + expectedAnnualChurn;
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 bg-white">
@@ -187,7 +190,7 @@ function TargetAllocation({
             <div className="space-y-2">
               {activePositive.map((ch) => {
                 const pct = historicalAlloc[ch.key];
-                const amt = newARR * (pct / 100);
+                const amt = grossTarget * (pct / 100);
                 return (
                   <div key={ch.key} className="flex items-center justify-between py-1.5 px-3 rounded bg-gray-50">
                     <span className="text-sm font-medium text-gray-700">
@@ -203,42 +206,41 @@ function TargetAllocation({
                   </div>
                 );
               })}
-              {/* Total row — historical */}
+              {/* Total rows — historical */}
               {(() => {
                 const histGross = activePositive.reduce((s, ch) => s + historicalAlloc[ch.key], 0);
-                const netNewARR = newARR - expectedAnnualChurn;
                 return (
                   <>
+                    {hasChurn && expectedAnnualChurn > 0 && (
+                      <p className="text-xs text-gray-500 px-3 mt-2 mb-1">
+                        ARR gap: {formatCurrency(newARR)} + Churn to recover: {formatCurrency(expectedAnnualChurn)} = Gross target: {formatCurrency(grossTarget)}
+                      </p>
+                    )}
                     <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
-                      <span className="text-sm font-semibold text-gray-700">Gross New ARR</span>
+                      <span className="text-sm font-semibold text-gray-700">Gross Target</span>
                       <div className="flex items-center gap-4">
                         <span className="text-sm font-semibold text-green-700 w-16 text-right">
                           {histGross.toFixed(1)}%
                         </span>
                         <span className="text-sm font-bold text-gray-900 w-28 text-right">
-                          {formatCurrency(newARR)}
+                          {formatCurrency(grossTarget)}
                         </span>
                       </div>
                     </div>
                     {hasChurn && expectedAnnualChurn > 0 && (
                       <div className="flex items-center justify-between px-3">
-                        <span className="text-sm text-red-600">Expected Churn</span>
+                        <span className="text-sm text-red-600">Churn to recover</span>
                         <span className="text-sm font-semibold text-red-600 w-28 text-right">
-                          &minus;{formatCurrency(expectedAnnualChurn)}
+                          +{formatCurrency(expectedAnnualChurn)}
                         </span>
                       </div>
                     )}
                     <div className="flex items-center justify-between px-3 pt-1 border-t border-dashed border-gray-300">
-                      <span className="text-sm font-bold text-gray-900">Net New ARR</span>
+                      <span className="text-sm font-bold text-gray-900">Net New ARR (= your ARR gap)</span>
                       <span className="text-sm font-bold text-gray-900 w-28 text-right">
-                        {formatCurrency(netNewARR)}
+                        {formatCurrency(newARR)}
                       </span>
                     </div>
-                    {hasChurn && expectedAnnualChurn > 0 && (
-                      <p className="text-xs text-gray-500 px-3 mt-1">
-                        Gross {formatCurrency(newARR)} &mdash; Churn {formatCurrency(expectedAnnualChurn)} = Net {formatCurrency(netNewARR)} needed to reach target
-                      </p>
-                    )}
                   </>
                 );
               })()}
@@ -251,7 +253,7 @@ function TargetAllocation({
           <div className="space-y-2">
             {activePositive.map((ch) => {
               const pct = allocations[ch.key] || 0;
-              const amt = newARR * (pct / 100);
+              const amt = grossTarget * (pct / 100);
               return (
                 <div key={ch.key} className="flex items-center gap-3 py-1 px-3 rounded bg-gray-50">
                   <span className="text-sm font-medium text-gray-700 w-28">{ch.label}</span>
@@ -286,7 +288,7 @@ function TargetAllocation({
               <div className="space-y-2">
                 {activeEmerging.map((ch) => {
                   const pct = allocations[ch.key] || 0;
-                  const amt = newARR * (pct / 100);
+                  const amt = grossTarget * (pct / 100);
                   return (
                     <div key={ch.key} className="flex items-center gap-3 py-1 px-3 rounded bg-purple-50">
                       <span className="text-sm font-medium text-purple-700 w-28">{ch.label}</span>
@@ -316,9 +318,16 @@ function TargetAllocation({
             </div>
           )}
 
-          {/* Total row — Gross */}
+          {/* Math breakdown */}
+          {hasChurn && expectedAnnualChurn > 0 && (
+            <p className="text-xs text-gray-500 px-3 mt-3 mb-1">
+              ARR gap: {formatCurrency(newARR)} + Churn to recover: {formatCurrency(expectedAnnualChurn)} = Gross target: {formatCurrency(grossTarget)}
+            </p>
+          )}
+
+          {/* Gross Target row */}
           <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-200 px-3">
-            <span className="text-sm font-semibold text-gray-700">Gross New ARR</span>
+            <span className="text-sm font-semibold text-gray-700">Gross Target</span>
             <div className="flex items-center gap-4">
               <span className={`text-sm font-semibold w-16 text-right ${
                 grossValid ? 'text-green-700' : 'text-red-600'
@@ -327,40 +336,28 @@ function TargetAllocation({
                 {grossValid && <span className="ml-1">&#10003;</span>}
               </span>
               <span className={`text-sm font-bold w-28 text-right ${grossValid ? 'text-gray-900' : 'text-red-600'}`}>
-                {formatCurrency(newARR)}
+                {formatCurrency(grossTarget)}
               </span>
             </div>
           </div>
 
-          {/* Expected churn row */}
+          {/* Churn to recover row */}
           {hasChurn && expectedAnnualChurn > 0 && (
             <div className="flex items-center justify-between px-3">
-              <span className="text-sm text-red-600">Expected Churn</span>
+              <span className="text-sm text-red-600">Churn to recover</span>
               <span className="text-sm font-semibold text-red-600 w-28 text-right">
-                &minus;{formatCurrency(expectedAnnualChurn)}
+                +{formatCurrency(expectedAnnualChurn)}
               </span>
             </div>
           )}
 
           {/* Net New ARR row */}
-          {(() => {
-            const netNewARR = newARR - expectedAnnualChurn;
-            return (
-              <>
-                <div className="flex items-center justify-between px-3 pt-1 border-t border-dashed border-gray-300">
-                  <span className="text-sm font-bold text-gray-900">Net New ARR</span>
-                  <span className="text-sm font-bold text-gray-900 w-28 text-right">
-                    {formatCurrency(netNewARR)}
-                  </span>
-                </div>
-                {hasChurn && expectedAnnualChurn > 0 && (
-                  <p className="text-xs text-gray-500 px-3 mt-1">
-                    Gross {formatCurrency(newARR)} &mdash; Churn {formatCurrency(expectedAnnualChurn)} = Net {formatCurrency(netNewARR)} needed to reach target
-                  </p>
-                )}
-              </>
-            );
-          })()}
+          <div className="flex items-center justify-between px-3 pt-1 border-t border-dashed border-gray-300">
+            <span className="text-sm font-bold text-gray-900">Net New ARR (= your ARR gap)</span>
+            <span className="text-sm font-bold text-gray-900 w-28 text-right">
+              {formatCurrency(newARR)}
+            </span>
+          </div>
 
           {/* Validation */}
           {!grossValid && grossPct > 0 && (
