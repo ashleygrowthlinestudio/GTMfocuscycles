@@ -42,113 +42,118 @@ type TableRow = {
   betMetrics?: { metric: BetMetric; channel?: 'inbound' | 'outbound'; category?: string }[];
 };
 
+// Safe number helper — prevents NaN from propagating to display
+const n = (v: number | undefined | null): number => (v != null && isFinite(v) ? v : 0);
+
+const fmtSalesCycle = (v: number): string => `${n(v).toFixed(1)} mo`;
+
 function buildComparisonRows(targets?: RevenueBreakdown): TableRow[] {
   const rows: TableRow[] = [];
 
   // ── Inbound ──
   rows.push({
-    label: 'HIS Volume', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber,
+    label: 'HIS Volume', getMonthly: (m) => n(m.hisRequired), getQuarterly: (q) => n(q.hisRequired), fmt: formatNumber,
     betMetrics: [{ metric: 'hisMonthly', channel: 'inbound', category: 'newBusiness' }],
   });
   if (targets) {
     const ib = targets.newBusiness.inbound;
     rows.push({
-      label: 'HIS → Pipeline Rate', getMonthly: () => ib.hisToPipelineRate, getQuarterly: () => ib.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true,
+      label: 'HIS → Pipeline Rate', getMonthly: () => n(ib.hisToPipelineRate), getQuarterly: () => n(ib.hisToPipelineRate), fmt: formatPercent, isSecondary: true, isConstant: true,
       betMetrics: [{ metric: 'hisToPipelineRate', channel: 'inbound', category: 'newBusiness' }],
     });
   }
   rows.push({
-    label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qual. Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull,
+    label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qual. Pipeline', getMonthly: (m) => n(m.inboundPipelineCreated), getQuarterly: (q) => n(q.inboundPipelineCreated), fmt: formatCurrencyFull,
     betMetrics: [{ metric: 'hisMonthly', channel: 'inbound', category: 'newBusiness' }, { metric: 'hisToPipelineRate', channel: 'inbound', category: 'newBusiness' }],
   });
   if (targets) {
     const ib = targets.newBusiness.inbound;
     rows.push(
-      { label: 'IB Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }] },
-      { label: 'IB ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'inbound', category: 'newBusiness' }] },
-      { label: 'IB Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'inbound', category: 'newBusiness' }] },
+      { label: 'IB Win Rate', getMonthly: () => n(ib.winRate), getQuarterly: () => n(ib.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }] },
+      { label: 'IB ACV', getMonthly: () => n(ib.acv), getQuarterly: () => n(ib.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'inbound', category: 'newBusiness' }] },
+      { label: 'IB Sales Cycle', getMonthly: () => n(ib.salesCycleMonths), getQuarterly: () => n(ib.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'inbound', category: 'newBusiness' }] },
     );
   }
   rows.push({
-    label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true,
+    label: 'Inbound Closed Won', getMonthly: (m) => n(m.inboundClosedWon), getQuarterly: (q) => n(q.inboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true,
     betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }, { metric: 'acv', channel: 'inbound', category: 'newBusiness' }],
   });
   rows.push({
-    label: 'Inbound New Customers', getMonthly: (m) => m.inboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), fmt: formatNumber,
+    label: 'Inbound New Customers', getMonthly: (m) => n(m.inboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.inboundDeals), 0), fmt: formatNumber,
   });
 
   // ── Outbound ──
   rows.push({
-    label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qual. Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull,
+    label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qual. Pipeline', getMonthly: (m) => n(m.outboundPipelineCreated), getQuarterly: (q) => n(q.outboundPipelineCreated), fmt: formatCurrencyFull,
     betMetrics: [{ metric: 'pipelineMonthly', channel: 'outbound', category: 'newBusiness' }],
   });
   if (targets) {
     const ob = targets.newBusiness.outbound;
     rows.push(
-      { label: 'OB Win Rate', getMonthly: () => ob.winRate, getQuarterly: () => ob.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }] },
-      { label: 'OB ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'outbound', category: 'newBusiness' }] },
-      { label: 'OB Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'outbound', category: 'newBusiness' }] },
+      { label: 'OB Win Rate', getMonthly: () => n(ob.winRate), getQuarterly: () => n(ob.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }] },
+      { label: 'OB ACV', getMonthly: () => n(ob.acv), getQuarterly: () => n(ob.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'outbound', category: 'newBusiness' }] },
+      { label: 'OB Sales Cycle', getMonthly: () => n(ob.salesCycleMonths), getQuarterly: () => n(ob.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'outbound', category: 'newBusiness' }] },
     );
   }
   rows.push({
-    label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true,
+    label: 'Outbound Closed Won', getMonthly: (m) => n(m.outboundClosedWon), getQuarterly: (q) => n(q.outboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true,
     betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }, { metric: 'acv', channel: 'outbound', category: 'newBusiness' }],
   });
   rows.push({
-    label: 'Outbound New Customers', getMonthly: (m) => m.outboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), fmt: formatNumber,
+    label: 'Outbound New Customers', getMonthly: (m) => n(m.outboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.outboundDeals), 0), fmt: formatNumber,
   });
 
   // ── NP Inbound ──
-  rows.push({ label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS', getMonthly: (m) => m.newProductHisRequired, getQuarterly: (q) => q.newProductHisRequired, fmt: formatNumber });
+  rows.push({ label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS', getMonthly: (m) => n(m.newProductHisRequired), getQuarterly: (q) => n(q.newProductHisRequired), fmt: formatNumber });
   if (targets) {
     const npIb = targets.newProduct.inbound;
-    rows.push({ label: 'NP IB HIS → Pipeline Rate', getMonthly: () => npIb.hisToPipelineRate, getQuarterly: () => npIb.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true });
+    rows.push({ label: 'NP IB HIS → Pipeline Rate', getMonthly: () => n(npIb.hisToPipelineRate), getQuarterly: () => n(npIb.hisToPipelineRate), fmt: formatPercent, isSecondary: true, isConstant: true });
   }
-  rows.push({ label: 'NP Inbound Qual. Pipeline $', monthlyLabel: 'NP IB Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull });
+  rows.push({ label: 'NP Inbound Qual. Pipeline $', monthlyLabel: 'NP IB Pipeline', getMonthly: (m) => n(m.newProductInboundPipelineCreated), getQuarterly: (q) => n(q.newProductInboundPipelineCreated), fmt: formatCurrencyFull });
   if (targets) {
     const npIb = targets.newProduct.inbound;
     rows.push(
-      { label: 'NP IB Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newProduct' }] },
-      { label: 'NP IB ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'NP IB Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'NP IB Win Rate', getMonthly: () => n(npIb.winRate), getQuarterly: () => n(npIb.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newProduct' }] },
+      { label: 'NP IB ACV', getMonthly: () => n(npIb.acv), getQuarterly: () => n(npIb.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
+      { label: 'NP IB Sales Cycle', getMonthly: () => n(npIb.salesCycleMonths), getQuarterly: () => n(npIb.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true },
     );
   }
-  rows.push({ label: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-  rows.push({ label: 'NP Inbound Customers', getMonthly: (m) => m.newProductInboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), fmt: formatNumber });
+  rows.push({ label: 'NP Inbound Won', getMonthly: (m) => n(m.newProductInboundClosedWon), getQuarterly: (q) => n(q.newProductInboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
+  rows.push({ label: 'NP Inbound Customers', getMonthly: (m) => n(m.newProductInboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.newProductInboundDeals), 0), fmt: formatNumber });
 
   // ── NP Outbound ──
-  rows.push({ label: 'NP Outbound Qual. Pipeline $', monthlyLabel: 'NP OB Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull });
+  rows.push({ label: 'NP Outbound Qual. Pipeline $', monthlyLabel: 'NP OB Pipeline', getMonthly: (m) => n(m.newProductOutboundPipelineCreated), getQuarterly: (q) => n(q.newProductOutboundPipelineCreated), fmt: formatCurrencyFull });
   if (targets) {
     const npOb = targets.newProduct.outbound;
     rows.push(
-      { label: 'NP OB Win Rate', getMonthly: () => npOb.winRate, getQuarterly: () => npOb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newProduct' }] },
-      { label: 'NP OB ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'NP OB Sales Cycle', getMonthly: () => npOb.salesCycleMonths, getQuarterly: () => npOb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'NP OB Win Rate', getMonthly: () => n(npOb.winRate), getQuarterly: () => n(npOb.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newProduct' }] },
+      { label: 'NP OB ACV', getMonthly: () => n(npOb.acv), getQuarterly: () => n(npOb.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
+      { label: 'NP OB Sales Cycle', getMonthly: () => n(npOb.salesCycleMonths), getQuarterly: () => n(npOb.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true },
     );
   }
-  rows.push({ label: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-  rows.push({ label: 'NP Outbound Customers', getMonthly: (m) => m.newProductOutboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductOutboundDeals, 0), fmt: formatNumber });
+  rows.push({ label: 'NP Outbound Won', getMonthly: (m) => n(m.newProductOutboundClosedWon), getQuarterly: (q) => n(q.newProductOutboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
+  rows.push({ label: 'NP Outbound Customers', getMonthly: (m) => n(m.newProductOutboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.newProductOutboundDeals), 0), fmt: formatNumber });
 
   // ── Expansion ──
   if (targets) {
     rows.push({
-      label: 'Expansion Pipeline $', getMonthly: () => targets.expansion.pipelineMonthly, getQuarterly: () => targets.expansion.pipelineMonthly, fmt: formatCurrencyFull, isSecondary: true, isConstant: true,
+      label: 'Expansion Pipeline $', getMonthly: () => n(targets.expansion?.pipelineMonthly), getQuarterly: () => n(targets.expansion?.pipelineMonthly), fmt: formatCurrencyFull, isSecondary: true, isConstant: true,
       betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }],
     });
   }
-  rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true, betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }] });
+  rows.push({ label: 'Expansion Revenue', getMonthly: (m) => n(m.expansionRevenue), getQuarterly: (q) => n(q.expansionRevenue), fmt: formatCurrencyFull, isPurple: true, betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }] });
 
   // ── Churn ──
   if (targets) {
     rows.push({
-      label: 'Churn Rate', getMonthly: () => targets.churn.monthlyChurnRate, getQuarterly: () => targets.churn.monthlyChurnRate, fmt: formatPercent, isSecondary: true, isConstant: true, isChurn: true,
+      label: 'Churn Rate', getMonthly: () => n(targets.churn?.monthlyChurnRate), getQuarterly: () => n(targets.churn?.monthlyChurnRate), fmt: formatPercent, isSecondary: true, isConstant: true, isChurn: true,
       betMetrics: [{ metric: 'monthlyChurnRate', category: 'churn' }],
     });
   }
-  rows.push({ label: 'Churn Revenue', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, isChurn: true, isPurple: true, betMetrics: [{ metric: 'monthlyChurnRate', category: 'churn' }] });
+  rows.push({ label: 'Churn Revenue', getMonthly: (m) => n(m.churnRevenue), getQuarterly: (q) => n(q.churnRevenue), fmt: formatCurrencyFull, isChurn: true, isPurple: true, betMetrics: [{ metric: 'monthlyChurnRate', category: 'churn' }] });
 
   // ── Totals ──
-  rows.push({ label: 'Total New ARR', monthlyLabel: 'Net New ARR', getMonthly: (m) => m.totalNewARR, getQuarterly: (q) => q.totalNewARR, fmt: formatCurrencyFull, isHighlight: true });
+  rows.push({ label: 'Total New ARR', monthlyLabel: 'Net New ARR', getMonthly: (m) => n(m.totalNewARR), getQuarterly: (q) => n(q.totalNewARR), fmt: formatCurrencyFull, isHighlight: true });
 
   return rows;
 }
@@ -172,10 +177,11 @@ function getBetsForRow(row: TableRow, enabledBets: StrategicBet[]): StrategicBet
 }
 
 function formatBetValue(metric: string, value: number): string {
-  if (['winRate', 'hisToPipelineRate', 'expansionRate', 'monthlyChurnRate'].includes(metric) || metric.endsWith('MixPct')) return formatPercent(value);
-  if (['acv', 'pipelineMonthly'].includes(metric)) return formatCurrencyFull(value);
-  if (metric === 'salesCycleMonths') return `${value.toFixed(1)} mo`;
-  return value.toFixed(0);
+  const v = n(value);
+  if (['winRate', 'hisToPipelineRate', 'expansionRate', 'monthlyChurnRate'].includes(metric) || metric.endsWith('MixPct')) return formatPercent(v);
+  if (['acv', 'pipelineMonthly'].includes(metric)) return formatCurrencyFull(v);
+  if (metric === 'salesCycleMonths') return `${v.toFixed(1)} mo`;
+  return v.toFixed(0);
 }
 
 function betTooltip(bet: StrategicBet): string {
@@ -237,12 +243,12 @@ export default function BetComparisonTable({
 }: BetComparisonTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
 
-  const sqEndARR = statusQuoMonthly[11]?.cumulativeARR ?? 0;
-  const betsEndARR = withBetsMonthly[11]?.cumulativeARR ?? 0;
+  const sqEndARR = n(statusQuoMonthly[11]?.cumulativeARR);
+  const betsEndARR = n(withBetsMonthly[11]?.cumulativeARR);
 
   const gapClosed = betsEndARR - sqEndARR;
   const totalGap = targetARR - sqEndARR;
-  const percentClosed = totalGap > 0 ? Math.min(100, (gapClosed / totalGap) * 100) : 100;
+  const percentClosed = totalGap > 0 ? Math.min(100, Math.max(0, (gapClosed / totalGap) * 100)) : (betsEndARR >= targetARR ? 100 : 0);
 
   const enabledBets = (bets || []).filter((b) => b.enabled);
 
@@ -264,6 +270,11 @@ export default function BetComparisonTable({
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <div className="text-xs text-blue-600 font-medium uppercase">With Bets</div>
           <div className="text-lg font-bold text-blue-800">{formatCurrencyFull(betsEndARR)}</div>
+          {gapClosed !== 0 && (
+            <div className={`text-xs font-medium mt-0.5 ${gapClosed > 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {gapClosed > 0 ? '+' : ''}{formatCurrencyFull(Math.round(gapClosed))} vs SQ
+            </div>
+          )}
         </div>
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <div className="text-xs text-gray-600 font-medium uppercase">Target</div>

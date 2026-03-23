@@ -2,51 +2,82 @@
 
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithBets, applyChannelConfig, computeChannelMix, applyStrategicBets } from '@/lib/engine';
+import {
+  runModel,
+  runModelWithActuals,
+  runModelWithBets,
+  capModelAtTarget,
+  applyChannelConfig,
+  computeChannelMix,
+  applyStrategicBets,
+} from '@/lib/engine';
+import { formatCurrencyFull, formatPercent } from '@/lib/format';
 import BetSelector from '@/components/strategic/BetSelector';
 import BetCard from '@/components/strategic/BetCard';
 import BetComparisonTable from '@/components/strategic/BetComparisonTable';
+import type { RampConfig } from '@/lib/types';
+
+const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 
 export default function StrategicBets() {
   const { plan, dispatch } = useGTMPlan();
 
-  // Target model (with channel config applied)
+  const isInYear = plan.planningMode === 'in-year';
+  const hasActuals = (plan.detailedActuals?.length ?? 0) > 0;
+  const cm = plan.currentMonth ?? 1;
+
+  // ── Channel-config-applied inputs ──
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, plan.channelConfig, 'targets'),
     [plan.targets, plan.channelConfig],
   );
-
-  const targetModel = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
-    [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
-  );
-
-  // Status quo model (flat seasonality, no ramp, with channel config applied)
-  const flatSeasonality = useMemo(() => ({
-    monthly: Object.fromEntries(
-      Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
-    ) as Record<number, number>,
-  }), []);
-
-  const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
 
   const effectiveHistorical = useMemo(
     () => applyChannelConfig(plan.historical, plan.channelConfig, 'historical'),
     [plan.historical, plan.channelConfig],
   );
 
-  const statusQuoModel = useMemo(
-    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+  // ── Target model — matches TopDownPlan exactly (with cap) ──
+  const uncappedTargetModel = useMemo(() => {
+    if (isInYear && hasActuals) {
+      return runModelWithActuals(
+        effectiveTargets, plan.seasonality, DEFAULT_RAMP,
+        plan.startingARR, plan.existingPipeline,
+        plan.detailedActuals!, cm,
+      );
+    }
+    return runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
+  }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm]);
+
+  const targetModel = useMemo(
+    () => capModelAtTarget(uncappedTargetModel, plan.targetARR, plan.startingARR),
+    [uncappedTargetModel, plan.targetARR, plan.startingARR],
   );
 
-  // Compute channel mix from status quo model
+  // ── Status quo model — historical inputs, flat seasonality, no ramp ──
+  const flatSeasonality = useMemo(() => ({
+    monthly: Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
+    ) as Record<number, number>,
+  }), []);
+
+  const statusQuoModel = useMemo(() => {
+    if (isInYear && hasActuals) {
+      return runModelWithActuals(
+        effectiveHistorical, flatSeasonality, DEFAULT_RAMP,
+        plan.startingARR, plan.existingPipeline,
+        plan.detailedActuals!, cm,
+      );
+    }
+    return runModel(effectiveHistorical, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
+  }, [isInYear, hasActuals, effectiveHistorical, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm]);
+
+  // ── Channel mix from status quo ──
   const channelMix = useMemo(
     () => computeChannelMix(statusQuoModel),
     [statusQuoModel],
   );
 
-  // Total gross revenue for mix $ calculations
   const totalRevenue = useMemo(() => {
     const m = statusQuoModel.monthly;
     return m.reduce((s, r) =>
@@ -55,10 +86,10 @@ export default function StrategicBets() {
       r.expansionRevenue + Math.abs(r.churnRevenue), 0);
   }, [statusQuoModel]);
 
-  // With bets model — same flat seasonality/no ramp as status quo so we isolate bet impact
+  // ── With-bets model — same baseline as SQ, but with bets applied per-month ──
   const withBetsModel = useMemo(
-    () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, plan.strategicBets, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
   );
 
   // Compute bet-modified targets for secondary row display (fully ramped)
@@ -69,8 +100,50 @@ export default function StrategicBets() {
 
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
 
+  // ── Target allocation context ──
+  const alloc = plan.targetAllocations;
+  const neededNewARR = plan.targetARR - plan.startingARR;
+  const showAllocContext = (plan.targetAllocationMode === 'manual' || plan.targetAllocationMode === 'historical') && neededNewARR > 0;
+
   return (
     <div className="space-y-6">
+      {/* Target allocation context */}
+      {showAllocContext && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h2 className="text-sm font-semibold text-blue-800">Your Revenue Targets Require</h2>
+          <p className="text-xs text-blue-600 mt-1 mb-2">
+            Select bets that help close the gap between status quo and these targets.
+          </p>
+          <div className="flex flex-wrap gap-3 text-xs">
+            {alloc.inbound > 0 && (
+              <span className="bg-white border border-blue-200 rounded px-2 py-1 text-blue-800">
+                Inbound {formatCurrencyFull(Math.round(neededNewARR * alloc.inbound / 100))} ({alloc.inbound.toFixed(0)}%)
+              </span>
+            )}
+            {alloc.outbound > 0 && (
+              <span className="bg-white border border-blue-200 rounded px-2 py-1 text-blue-800">
+                Outbound {formatCurrencyFull(Math.round(neededNewARR * alloc.outbound / 100))} ({alloc.outbound.toFixed(0)}%)
+              </span>
+            )}
+            {alloc.expansion > 0 && (
+              <span className="bg-white border border-blue-200 rounded px-2 py-1 text-purple-800">
+                Expansion {formatCurrencyFull(Math.round(neededNewARR * alloc.expansion / 100))} ({alloc.expansion.toFixed(0)}%)
+              </span>
+            )}
+            {alloc.churn > 0 && (
+              <span className="bg-white border border-blue-200 rounded px-2 py-1 text-red-800">
+                Churn Budget {formatCurrencyFull(Math.round(neededNewARR * alloc.churn / 100))} ({alloc.churn.toFixed(0)}%)
+              </span>
+            )}
+            {alloc.newProduct > 0 && (
+              <span className="bg-white border border-blue-200 rounded px-2 py-1 text-green-800">
+                New Product {formatCurrencyFull(Math.round(neededNewARR * alloc.newProduct / 100))} ({alloc.newProduct.toFixed(0)}%)
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Intro */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold text-purple-800">Strategic Bets Calculator</h2>
