@@ -1157,6 +1157,63 @@ export function applyMarketInsights(
 }
 
 /**
+ * Apply market insights then normalize so total new ARR equals targetARR - startingARR.
+ * Used by Revenue Targets tab to redistribute without changing the total.
+ */
+export function applyMarketInsightsNormalized(
+  monthly: MonthlyResult[],
+  insights: MarketInsight[],
+  startingARR: number,
+  targetARR: number,
+): ModelRun {
+  const raw = applyMarketInsights(monthly, insights, startingARR);
+  const desiredNewARR = targetARR - startingARR;
+  const actualNewARR = raw.totalNewARRAdded;
+
+  // If no meaningful new ARR was produced, return as-is (can't normalize zero)
+  if (Math.abs(actualNewARR) < 0.01) return raw;
+
+  const scale = desiredNewARR / actualNewARR;
+  if (Math.abs(scale - 1) < 0.0001) return raw; // already matches
+
+  const normalized = raw.monthly.map((m) => ({ ...m }));
+  let currentARR = startingARR;
+  for (let i = 0; i < normalized.length; i++) {
+    const m = normalized[i];
+    m.inboundClosedWon *= scale;
+    m.outboundClosedWon *= scale;
+    m.newProductInboundClosedWon *= scale;
+    m.newProductOutboundClosedWon *= scale;
+    m.expansionRevenue *= scale;
+    m.churnRevenue *= scale;
+    m.inboundDeals *= scale;
+    m.outboundDeals *= scale;
+    m.newProductInboundDeals *= scale;
+    m.newProductOutboundDeals *= scale;
+    m.inboundPipelineCreated *= scale;
+    m.outboundPipelineCreated *= scale;
+    m.newProductInboundPipelineCreated *= scale;
+    m.newProductOutboundPipelineCreated *= scale;
+    m.hisRequired *= scale;
+    m.newProductHisRequired *= scale;
+    m.totalNewARR =
+      m.inboundClosedWon + m.outboundClosedWon +
+      m.newProductInboundClosedWon + m.newProductOutboundClosedWon +
+      m.expansionRevenue + m.churnRevenue;
+    currentARR += m.totalNewARR;
+    m.cumulativeARR = currentARR;
+  }
+
+  const quarterly = rollUpToQuarters(normalized);
+  return {
+    monthly: normalized,
+    quarterly,
+    endingARR: normalized[11].cumulativeARR,
+    totalNewARRAdded: normalized.reduce((s, m) => s + m.totalNewARR, 0),
+  };
+}
+
+/**
  * Get the list of enabled insights that affect a given month.
  */
 export function getInsightsForMonth(insights: MarketInsight[], month: number): MarketInsight[] {

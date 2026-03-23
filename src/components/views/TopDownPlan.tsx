@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsights, getInsightsForMonth } from '@/lib/engine';
+import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsightsNormalized, getInsightsForMonth } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
 import type { RampConfig, PipelineDeadline } from '@/lib/types';
@@ -70,13 +70,13 @@ export default function TopDownPlan() {
     [uncappedModel, plan.targetARR, plan.startingARR],
   );
 
-  // Apply market insights if enabled
+  // Apply market insights if enabled — normalized so total ARR still equals targetARR
   const model = useMemo(() => {
     if (includeInsights && hasInsights) {
-      return applyMarketInsights(cappedModel.monthly, enabledInsights, plan.startingARR);
+      return applyMarketInsightsNormalized(cappedModel.monthly, enabledInsights, plan.startingARR, plan.targetARR);
     }
     return cappedModel;
-  }, [cappedModel, includeInsights, hasInsights, enabledInsights, plan.startingARR]);
+  }, [cappedModel, includeInsights, hasInsights, enabledInsights, plan.startingARR, plan.targetARR]);
 
   // Pipeline deadlines
   const deadlines = useMemo(
@@ -88,10 +88,6 @@ export default function TopDownPlan() {
     () => buildPipelineTimingMap(effectiveTargets, cm),
     [effectiveTargets, cm],
   );
-
-  const projectedEnd = Math.min(model.endingARR, plan.targetARR);
-  const gap = plan.targetARR - projectedEnd;
-  const planAchieved = gap <= 0;
 
   // Group deadlines by quarter for quarterly view
   const quarterlyDeadlines = useMemo(() => {
@@ -106,16 +102,9 @@ export default function TopDownPlan() {
   return (
     <div className="space-y-6">
       {/* Top-level summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <SummaryCard label="Starting ARR" value={formatCurrency(plan.startingARR)} color="gray" />
         <SummaryCard label="Target ARR" value={formatCurrency(plan.targetARR)} color="blue" />
-        <SummaryCard label="Projected ARR" value={formatCurrency(projectedEnd)} color="green" />
-        <SummaryCard
-          label="Gap to Target"
-          value={planAchieved ? '$0' : formatCurrency(gap)}
-          color={planAchieved ? 'green' : 'red'}
-          suffix={planAchieved ? '✓ Plan Achieved' : 'short'}
-        />
       </div>
 
       {/* Market Insights toggle + banner */}
@@ -137,7 +126,7 @@ export default function TopDownPlan() {
                 }`}
               />
             </button>
-            <span className="text-xs font-medium text-gray-700">Include Market Insights</span>
+            <span className="text-xs font-medium text-gray-700">Show market-adjusted distribution</span>
           </label>
           {includeInsights && (
             <div className="flex items-start gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
@@ -145,42 +134,7 @@ export default function TopDownPlan() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <span className="text-xs text-amber-700 font-medium leading-relaxed">
-                {(() => {
-                  const CHAN_LABELS: Record<string, string> = { inbound: 'Inbound', outbound: 'Outbound', newProduct: 'New Product', expansion: 'Expansion', churn: 'Churn', all: 'All channels' };
-                  const DESC_VERBS: Record<string, string> = {
-                    'Strong Growth': 'grow strongly',
-                    'Moderate Growth': 'grow moderately',
-                    'Slight Growth': 'grow slightly',
-                    'Flat': 'remain flat',
-                    'Slight Decline': 'decline slightly',
-                    'Significant Decline': 'decline significantly',
-                    'Near Zero': 'drop to near zero',
-                  };
-                  // Group primary insights (skip offset-only insights)
-                  const primaries = enabledInsights.filter((ins) => {
-                    const isOffsetOnly = ins.offsetInsightId && enabledInsights.some((p) => p.offsetInsightId === ins.id);
-                    return !isOffsetOnly;
-                  });
-                  if (primaries.length === 0) return `${enabledInsights.length} market insight${enabledInsights.length !== 1 ? 's' : ''} affecting these projections`;
-                  const parts = primaries.map((ins) => {
-                    const ch = CHAN_LABELS[ins.channel] || ins.channel;
-                    const pctVal = Math.round(ins.impactPct * 100);
-                    const desc = ins.impactDescriptor ? (DESC_VERBS[ins.impactDescriptor] || ins.impactDescriptor.toLowerCase()) : (pctVal < 0 ? 'decline' : pctVal > 0 ? 'grow' : 'remain flat');
-                    const mo = MONTH_NAMES[(ins.impactMonth ?? 1) - 1];
-                    let s = `${ch} is projected to ${desc} from ${mo}`;
-                    // Check for linked offset
-                    if (ins.offsetInsightId) {
-                      const offset = enabledInsights.find((o) => o.id === ins.offsetInsightId);
-                      if (offset) {
-                        const offCh = CHAN_LABELS[offset.channel] || offset.channel;
-                        const offDesc = offset.impactDescriptor ? (DESC_VERBS[offset.impactDescriptor] || offset.impactDescriptor.toLowerCase()) : 'grow';
-                        s += `. ${offCh} is expected to ${offDesc} to ${offset.impactDescriptor === 'Fully Compensates' ? 'fully' : 'partially'} offset`;
-                      }
-                    }
-                    return s;
-                  });
-                  return `Market insights applied: ${parts.join('. ')}.`;
-                })()}
+                Market insights are reshaping how you reach your {formatCurrency(plan.targetARR)} target &mdash; see the distribution changes below
               </span>
             </div>
           )}
