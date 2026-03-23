@@ -286,7 +286,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
 /* ── Planning mode helpers ────────────────────────────────── */
 
 function ActBadge() {
-  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-green-100 text-green-700 leading-none align-middle">ACT</span>;
+  return <span className="inline-block ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-green-100 text-green-700 leading-none align-middle">ACT 🔒</span>;
 }
 
 function PlanBadge() {
@@ -395,7 +395,7 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
     const projVal = sumProjectedMonths(q, cm, row.getMonthly);
     return (
       <span className="flex flex-col items-end gap-0.5 leading-tight">
-        <span className="text-green-700">{row.fmt(actVal)} <span className="text-[9px] font-medium text-green-600">ACT</span></span>
+        <span className="text-green-700">{row.fmt(actVal)} <span className="text-[9px] font-medium text-green-600">ACT 🔒</span></span>
         <span className="text-blue-700">{row.fmt(projVal)} <span className="text-[9px] font-medium text-blue-600">PLAN</span></span>
       </span>
     );

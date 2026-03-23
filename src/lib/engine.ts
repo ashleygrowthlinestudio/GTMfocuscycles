@@ -1034,6 +1034,8 @@ export function applyMarketInsights(
   monthly: MonthlyResult[],
   insights: MarketInsight[],
   startingARR: number,
+  currentMonth?: number,
+  planningMode?: 'future-year' | 'in-year',
 ): ModelRun {
   const enabled = insights.filter((i) => i.enabled);
   if (enabled.length === 0) {
@@ -1043,8 +1045,14 @@ export function applyMarketInsights(
 
   const modified = monthly.map((m) => ({ ...m }));
 
+  // Determine which month indices are locked actuals (0-based)
+  const actualCutoff = (planningMode === 'in-year' && currentMonth != null) ? currentMonth : 0;
+
   for (const insight of enabled) {
     for (let i = 0; i < 12; i++) {
+      // Skip actual months — market insights only affect projected/future months
+      if (i < actualCutoff) continue;
+
       const month = i + 1;
       let effectPct = 0;
 
@@ -1167,8 +1175,10 @@ export function applyMarketInsightsNormalized(
   insights: MarketInsight[],
   startingARR: number,
   targetARR: number,
+  currentMonth?: number,
+  planningMode?: 'future-year' | 'in-year',
 ): ModelRun {
-  const raw = applyMarketInsights(monthly, insights, startingARR);
+  const raw = applyMarketInsights(monthly, insights, startingARR, currentMonth, planningMode);
   const desiredNewARR = targetARR - startingARR;
   const actualNewARR = raw.totalNewARRAdded;
 
@@ -1178,10 +1188,19 @@ export function applyMarketInsightsNormalized(
   const scale = desiredNewARR / actualNewARR;
   if (Math.abs(scale - 1) < 0.0001) return raw; // already matches
 
+  // Determine which month indices are locked actuals (0-based)
+  const actCutoff = (planningMode === 'in-year' && currentMonth != null) ? currentMonth : 0;
+
   const normalized = raw.monthly.map((m) => ({ ...m }));
-  let currentARR = startingARR;
+  let curARR = startingARR;
   for (let i = 0; i < normalized.length; i++) {
     const m = normalized[i];
+    // Skip actual months — don't rescale locked actuals
+    if (i < actCutoff) {
+      curARR += m.totalNewARR;
+      m.cumulativeARR = curARR;
+      continue;
+    }
     m.inboundClosedWon *= scale;
     m.outboundClosedWon *= scale;
     m.newProductInboundClosedWon *= scale;
@@ -1202,8 +1221,8 @@ export function applyMarketInsightsNormalized(
       m.inboundClosedWon + m.outboundClosedWon +
       m.newProductInboundClosedWon + m.newProductOutboundClosedWon +
       m.expansionRevenue + m.churnRevenue;
-    currentARR += m.totalNewARR;
-    m.cumulativeARR = currentARR;
+    curARR += m.totalNewARR;
+    m.cumulativeARR = curARR;
   }
 
   const quarterly = rollUpToQuarters(normalized);
