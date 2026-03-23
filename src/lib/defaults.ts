@@ -256,6 +256,9 @@ export const DEFAULT_TARGET_ALLOCATIONS: TargetAllocations = {
   expansion: 0,
   churn: 0,
   newProduct: 0,
+  emergingInbound: 0,
+  emergingOutbound: 0,
+  emergingNewProduct: 0,
 };
 
 export const DEFAULT_MARKET_INSIGHTS: MarketInsight[] = [];

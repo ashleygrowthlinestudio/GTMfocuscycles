@@ -41,7 +41,11 @@ export function loadPlan(): GTMPlan | null {
     if (!plan.detailedActuals) plan.detailedActuals = [];
     if (!plan.historicalQuarters) plan.historicalQuarters = [];
     if (!plan.targetAllocationMode) plan.targetAllocationMode = 'historical';
-    if (!plan.targetAllocations) plan.targetAllocations = { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
+    if (!plan.targetAllocations) plan.targetAllocations = { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 };
+    // Backfill emerging allocation fields for older plans
+    if (plan.targetAllocations && plan.targetAllocations.emergingOutbound === undefined) {
+      plan.targetAllocations = { ...plan.targetAllocations, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 };
+    }
 
     // Backfill market insights
     if (!plan.marketInsights) (plan as any).marketInsights = [];

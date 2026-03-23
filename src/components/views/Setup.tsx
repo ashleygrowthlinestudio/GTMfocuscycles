@@ -57,7 +57,8 @@ interface TargetAllocationProps {
   onAllocationsChange: (alloc: TargetAllocations) => void;
 }
 
-type AllocChannel = 'inbound' | 'outbound' | 'expansion' | 'churn' | 'newProduct';
+type AllocChannel = 'inbound' | 'outbound' | 'expansion' | 'churn' | 'newProduct'
+  | 'emergingInbound' | 'emergingOutbound' | 'emergingNewProduct';
 const ALLOC_CHANNELS: { key: AllocChannel; label: string; configKey: keyof ChannelConfig }[] = [
   { key: 'inbound', label: 'Inbound', configKey: 'hasInbound' },
   { key: 'outbound', label: 'Outbound', configKey: 'hasOutbound' },
@@ -66,12 +67,18 @@ const ALLOC_CHANNELS: { key: AllocChannel; label: string; configKey: keyof Chann
   { key: 'newProduct', label: 'New Product', configKey: 'hasNewProduct' },
 ];
 
+const EMERGING_ALLOC_CHANNELS: { key: AllocChannel; label: string; configKey: keyof ChannelConfig }[] = [
+  { key: 'emergingInbound', label: 'Inbound (Emerging)', configKey: 'hasEmergingInbound' },
+  { key: 'emergingOutbound', label: 'Outbound (Emerging)', configKey: 'hasEmergingOutbound' },
+  { key: 'emergingNewProduct', label: 'New Product (Emerging)', configKey: 'hasEmergingNewProduct' },
+];
+
 function computeHistoricalAllocations(
   quarters: QuarterlyHistoricalData[],
   cc: ChannelConfig,
 ): Record<AllocChannel, number> {
   const filled = quarters.filter(isQuarterFilled);
-  if (filled.length === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
+  if (filled.length === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 };
 
   let totalIb = 0, totalOb = 0, totalExp = 0, totalChurn = 0, totalNp = 0;
   for (const q of filled) {
@@ -83,7 +90,7 @@ function computeHistoricalAllocations(
   }
 
   const grandTotal = totalIb + totalOb + totalExp + totalChurn + totalNp;
-  if (grandTotal === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
+  if (grandTotal === 0) return { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 };
 
   return {
     inbound: cc.hasInbound ? Math.round((totalIb / grandTotal) * 10000) / 100 : 0,
@@ -91,6 +98,10 @@ function computeHistoricalAllocations(
     expansion: cc.hasExpansion ? Math.round((totalExp / grandTotal) * 10000) / 100 : 0,
     churn: cc.hasChurn ? Math.round((totalChurn / grandTotal) * 10000) / 100 : 0,
     newProduct: cc.hasNewProduct ? Math.round((totalNp / grandTotal) * 10000) / 100 : 0,
+    // Emerging channels have no historical data by definition
+    emergingInbound: 0,
+    emergingOutbound: 0,
+    emergingNewProduct: 0,
   };
 }
 
@@ -100,6 +111,8 @@ function TargetAllocation({
 }: TargetAllocationProps) {
   const newARR = targetARR - startingARR;
   const activeChannels = ALLOC_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
+  const activeEmergingChannels = EMERGING_ALLOC_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
+  const allActiveChannels = [...activeChannels, ...activeEmergingChannels];
 
   const historicalAlloc = useMemo(
     () => computeHistoricalAllocations(historicalQuarters, channelConfig),
@@ -107,8 +120,8 @@ function TargetAllocation({
   );
 
   const manualTotal = useMemo(
-    () => activeChannels.reduce((s, ch) => s + (allocations[ch.key] || 0), 0),
-    [allocations, activeChannels],
+    () => allActiveChannels.reduce((s, ch) => s + (allocations[ch.key] || 0), 0),
+    [allocations, allActiveChannels],
   );
   const manualValid = Math.abs(manualTotal - 100) < 0.01;
 
@@ -217,6 +230,43 @@ function TargetAllocation({
               );
             })}
           </div>
+
+          {/* Emerging Channels */}
+          {activeEmergingChannels.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2 px-3">Emerging Channels</p>
+              <div className="space-y-2">
+                {activeEmergingChannels.map((ch) => {
+                  const pct = allocations[ch.key] || 0;
+                  const amt = newARR * (pct / 100);
+                  return (
+                    <div key={ch.key} className="flex items-center gap-3 py-1 px-3 rounded bg-purple-50">
+                      <span className="text-sm font-medium text-purple-700 w-28">{ch.label}</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          value={pct || ''}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            onAllocationsChange({ ...allocations, [ch.key]: Math.max(0, Math.min(100, val)) });
+                          }}
+                          placeholder="0"
+                          step={0.1}
+                          min={0}
+                          max={100}
+                          className="w-20 text-right rounded border border-purple-300 py-1 px-2 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
+                        />
+                        <span className="text-xs text-purple-400">%</span>
+                      </div>
+                      <span className="text-sm text-purple-500 ml-auto w-28 text-right">
+                        {formatCurrency(amt)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Total row */}
           <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-200 px-3">
@@ -657,7 +707,7 @@ export default function Setup() {
       {/* Target Allocation */}
       <TargetAllocation
         mode={plan.targetAllocationMode ?? 'historical'}
-        allocations={plan.targetAllocations ?? { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 }}
+        allocations={plan.targetAllocations ?? { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 }}
         channelConfig={cc}
         targetARR={plan.targetARR}
         startingARR={plan.startingARR}

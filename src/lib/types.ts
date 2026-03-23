@@ -258,6 +258,10 @@ export interface TargetAllocations {
   expansion: number;
   churn: number;
   newProduct: number;
+  // Emerging channels
+  emergingInbound: number;
+  emergingOutbound: number;
+  emergingNewProduct: number;
 }
 
 // ── Top-level plan ────────────────────────────────────────────
