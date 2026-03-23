@@ -25,14 +25,12 @@ const METRIC_BET_OPTIONS: BetOption[] = [
   { metric: 'pipelineMonthly', category: 'expansion', label: 'Expansion Pipeline', description: 'Increase monthly expansion pipeline created' },
   { metric: 'monthlyChurnRate', category: 'churn', label: 'Churn Reduction', description: 'Reduce monthly churn rate' },
   { metric: 'winRate', category: 'newProduct', channel: 'inbound', label: 'New Product Win Rate', description: 'Improve new product win rate' },
-  { metric: 'pipelineMonthly', category: 'newProduct', channel: 'outbound', label: 'New Product Pipeline', description: 'Increase new product outbound pipeline' },
 ];
 
 const MIX_BET_OPTIONS: BetOption[] = [
   { metric: 'inboundMixPct', category: 'revenueMix', label: 'Inbound Mix %', description: 'Increase inbound share of total new ARR' },
   { metric: 'outboundMixPct', category: 'revenueMix', label: 'Outbound Mix %', description: 'Increase outbound share of total new ARR' },
   { metric: 'newProductInboundMixPct', category: 'revenueMix', label: 'New Product Inbound Mix %', description: 'Increase new product inbound share of total new ARR' },
-  { metric: 'newProductOutboundMixPct', category: 'revenueMix', label: 'New Product Outbound Mix %', description: 'Increase new product outbound share of total new ARR' },
   { metric: 'expansionMixPct', category: 'revenueMix', label: 'Expansion Mix %', description: 'Increase expansion share of total ARR' },
   { metric: 'churnMixPct', category: 'revenueMix', label: 'Churn Mix %', description: 'Reduce churn as % of total ARR' },
 ];
@@ -41,7 +39,6 @@ const MIX_METRIC_TO_KEY: Record<string, keyof ChannelMix> = {
   inboundMixPct: 'inbound',
   outboundMixPct: 'outbound',
   newProductInboundMixPct: 'newProductInbound',
-  newProductOutboundMixPct: 'newProductOutbound',
   expansionMixPct: 'expansion',
   churnMixPct: 'churn',
 };
@@ -50,7 +47,10 @@ function getCurrentValue(historical: RevenueBreakdown, option: BetOption): numbe
   if (option.category === 'expansion') return historical.expansion.pipelineMonthly;
   if (option.category === 'churn') return historical.churn.monthlyChurnRate;
 
-  const cat = option.category === 'newBusiness' ? historical.newBusiness : historical.newProduct;
+  if (option.category === 'newProduct') {
+    return (historical.newProduct.inbound as unknown as Record<string, number>)[option.metric] ?? 0;
+  }
+  const cat = historical.newBusiness;
   if (option.channel === 'inbound') {
     return (cat.inbound as unknown as Record<string, number>)[option.metric] ?? 0;
   }

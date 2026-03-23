@@ -113,7 +113,7 @@ export default function Methodology() {
             <div>
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Total New ARR</h3>
               <Formula
-                formula="Inbound Won + Outbound Won + NP Inbound + NP Outbound + Expansion − Churn = Total New ARR"
+                formula="Inbound Won + Outbound Won + NP Inbound + Expansion − Churn = Total New ARR"
                 explanation="All closed-won revenue from every channel, plus expansion, minus churn, gives total net new ARR added in a given month."
               />
             </div>

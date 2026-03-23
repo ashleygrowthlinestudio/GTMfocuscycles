@@ -64,12 +64,24 @@ export function loadPlan(): GTMPlan | null {
     }
 
     // Backfill newProduct for plans that predate the new product channel
-    const ZERO_NP = { inbound: { hisMonthly: 0, hisToPipelineRate: 0, winRate: 0, acv: 0, salesCycleMonths: 0 }, outbound: { pipelineMonthly: 0, winRate: 0, acv: 0, salesCycleMonths: 0 } };
+    const ZERO_NP = { inbound: { hisMonthly: 0, hisToPipelineRate: 0, winRate: 0, acv: 0, salesCycleMonths: 0 } };
     if (plan.targets && !plan.targets.newProduct) {
       (plan.targets as any).newProduct = ZERO_NP;
     }
     if (plan.historical && !plan.historical.newProduct) {
       (plan.historical as any).newProduct = ZERO_NP;
+    }
+
+    // Strip legacy newProduct.outbound from saved plans
+    if (plan.targets?.newProduct && (plan.targets.newProduct as any).outbound) {
+      delete (plan.targets.newProduct as any).outbound;
+    }
+    if (plan.historical?.newProduct && (plan.historical.newProduct as any).outbound) {
+      delete (plan.historical.newProduct as any).outbound;
+    }
+    // Strip legacy existingPipeline.outboundNewProduct
+    if (plan.existingPipeline && (plan.existingPipeline as any).outboundNewProduct !== undefined) {
+      delete (plan.existingPipeline as any).outboundNewProduct;
     }
 
     // Backfill market insights

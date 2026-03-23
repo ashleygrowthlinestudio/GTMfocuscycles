@@ -121,19 +121,6 @@ function buildComparisonRows(targets?: RevenueBreakdown): TableRow[] {
   rows.push({ label: 'NP Inbound Won', getMonthly: (m) => n(m.newProductInboundClosedWon), getQuarterly: (q) => n(q.newProductInboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
   rows.push({ label: 'NP Inbound Customers', getMonthly: (m) => n(m.newProductInboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.newProductInboundDeals), 0), fmt: formatNumber });
 
-  // ── NP Outbound ──
-  rows.push({ label: 'NP Outbound Qual. Pipeline $', monthlyLabel: 'NP OB Pipeline', getMonthly: (m) => n(m.newProductOutboundPipelineCreated), getQuarterly: (q) => n(q.newProductOutboundPipelineCreated), fmt: formatCurrencyFull });
-  if (targets) {
-    const npOb = targets.newProduct.outbound;
-    rows.push(
-      { label: 'NP OB Win Rate', getMonthly: () => n(npOb.winRate), getQuarterly: () => n(npOb.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newProduct' }] },
-      { label: 'NP OB ACV', getMonthly: () => n(npOb.acv), getQuarterly: () => n(npOb.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'NP OB Sales Cycle', getMonthly: () => n(npOb.salesCycleMonths), getQuarterly: () => n(npOb.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true },
-    );
-  }
-  rows.push({ label: 'NP Outbound Won', getMonthly: (m) => n(m.newProductOutboundClosedWon), getQuarterly: (q) => n(q.newProductOutboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
-  rows.push({ label: 'NP Outbound Customers', getMonthly: (m) => n(m.newProductOutboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.newProductOutboundDeals), 0), fmt: formatNumber });
-
   // ── Expansion ──
   if (targets) {
     rows.push({

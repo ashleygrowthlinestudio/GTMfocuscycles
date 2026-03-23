@@ -63,12 +63,43 @@ export function calculateMonthlyRevenue(
 ): MonthlyResult[] {
   const results: MonthlyResult[] = [];
 
-  // Track pipeline created each month so we can apply waterfall
-  const inboundCorePipeline: number[] = [];   // indexed 0-11 for months 1-12
+  // Track pipeline created each month so we can apply waterfall.
+  // Use negative indices (stored with offset) for pre-year pipeline to
+  // avoid $0 in early months due to sales cycle delay.
+  // Pre-seed: assume steady-state pipeline was created before month 1
+  // at the base (ramp=1, season=1) rate for up to maxCycle months back.
+  const maxCycle = Math.max(
+    Math.round(inputs.newBusiness.inbound.salesCycleMonths || 0),
+    Math.round(inputs.newBusiness.outbound.salesCycleMonths || 0),
+    Math.round(inputs.newProduct.inbound.salesCycleMonths || 0),
+    Math.round((inputs.expansion.salesCycleMonths ?? 0)),
+    0,
+  );
+  const PRE = maxCycle; // number of pre-seeded months
+
+  const inboundCorePipeline: number[] = [];
   const outboundCorePipeline: number[] = [];
   const inboundNewProdPipeline: number[] = [];
-  const outboundNewProdPipeline: number[] = [];
   const expansionPipeline: number[] = [];
+
+  // Pre-seed with steady-state pipeline (ramp=1, seasonality=1)
+  const ibSteady = calcInboundPipeline(inputs.newBusiness.inbound, 1, 1).pipeline;
+  const obSteady = calcOutboundPipeline(inputs.newBusiness.outbound, 1, 1);
+  const npIbSteadyVal = (inputs.newProduct.inbound.hisMonthly * inputs.newProduct.inbound.hisToPipelineRate * inputs.newProduct.inbound.acv) || 0;
+  const safeExpansionPre: OutboundFunnelInputs = {
+    pipelineMonthly: inputs.expansion.pipelineMonthly ?? 0,
+    winRate: inputs.expansion.winRate ?? 0,
+    acv: inputs.expansion.acv ?? 0,
+    salesCycleMonths: inputs.expansion.salesCycleMonths ?? 0,
+  };
+  const expSteady = calcOutboundPipeline(safeExpansionPre, 1, 1);
+
+  for (let p = 0; p < PRE; p++) {
+    inboundCorePipeline[p] = ibSteady;
+    outboundCorePipeline[p] = obSteady;
+    inboundNewProdPipeline[p] = npIbSteadyVal;
+    expansionPipeline[p] = expSteady;
+  }
 
   let currentARR = startingARR;
 
@@ -79,21 +110,18 @@ export function calculateMonthlyRevenue(
 
     // ── Pipeline creation ──
     const ib = calcInboundPipeline(inputs.newBusiness.inbound, seasonWeight, rampMult);
-    inboundCorePipeline[i] = ib.pipeline;
+    inboundCorePipeline[PRE + i] = ib.pipeline;
 
     const obPipeline = calcOutboundPipeline(inputs.newBusiness.outbound, seasonWeight, rampMult);
-    outboundCorePipeline[i] = obPipeline;
+    outboundCorePipeline[PRE + i] = obPipeline;
 
     // New product: pipeline-based (same as outbound), not HIS-based
     const npIbPipeline = calcOutboundPipeline(
       { pipelineMonthly: inputs.newProduct.inbound.hisMonthly * inputs.newProduct.inbound.hisToPipelineRate * inputs.newProduct.inbound.acv || 0, winRate: inputs.newProduct.inbound.winRate, acv: inputs.newProduct.inbound.acv, salesCycleMonths: inputs.newProduct.inbound.salesCycleMonths },
       seasonWeight, rampMult,
     );
-    inboundNewProdPipeline[i] = npIbPipeline;
+    inboundNewProdPipeline[PRE + i] = npIbPipeline;
     const npIbHis = 0; // NP no longer tracks HIS
-
-    const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
-    outboundNewProdPipeline[i] = npObPipeline;
 
     // Expansion pipeline creation (guard against legacy data missing funnel fields)
     const safeExpansion: OutboundFunnelInputs = {
@@ -103,32 +131,28 @@ export function calculateMonthlyRevenue(
       salesCycleMonths: inputs.expansion.salesCycleMonths ?? 0,
     };
     const expPipe = calcOutboundPipeline(safeExpansion, seasonWeight, rampMult);
-    expansionPipeline[i] = expPipe;
+    expansionPipeline[PRE + i] = expPipe;
 
     // ── Closed Won (waterfall from pipeline created N months ago) ──
-    const ibCycleIdx = i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
-    const obCycleIdx = i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
-    const npIbCycleIdx = i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
-    const npObCycleIdx = i - Math.round(inputs.newProduct.outbound.salesCycleMonths);
-    const expCycleIdx = i - Math.round(safeExpansion.salesCycleMonths);
+    // PRE + i gives current position; subtract sales cycle to find source pipeline
+    const ibCycleIdx = PRE + i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
+    const obCycleIdx = PRE + i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
+    const npIbCycleIdx = PRE + i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
+    const expCycleIdx = PRE + i - Math.round(safeExpansion.salesCycleMonths);
 
     let inboundClosedWon = 0;
     let outboundClosedWon = 0;
     let npInboundClosedWon = 0;
-    let npOutboundClosedWon = 0;
 
-    // New pipeline waterfall
+    // New pipeline waterfall (now picks up pre-seeded pipeline for early months)
     if (ibCycleIdx >= 0) {
-      inboundClosedWon = inboundCorePipeline[ibCycleIdx] * inputs.newBusiness.inbound.winRate;
+      inboundClosedWon = (inboundCorePipeline[ibCycleIdx] ?? 0) * inputs.newBusiness.inbound.winRate;
     }
     if (obCycleIdx >= 0) {
-      outboundClosedWon = outboundCorePipeline[obCycleIdx] * inputs.newBusiness.outbound.winRate;
+      outboundClosedWon = (outboundCorePipeline[obCycleIdx] ?? 0) * inputs.newBusiness.outbound.winRate;
     }
     if (npIbCycleIdx >= 0) {
-      npInboundClosedWon = inboundNewProdPipeline[npIbCycleIdx] * inputs.newProduct.inbound.winRate;
-    }
-    if (npObCycleIdx >= 0) {
-      npOutboundClosedWon = outboundNewProdPipeline[npObCycleIdx] * inputs.newProduct.outbound.winRate;
+      npInboundClosedWon = (inboundNewProdPipeline[npIbCycleIdx] ?? 0) * inputs.newProduct.inbound.winRate;
     }
 
     // Pre-existing pipeline closes in its expected month
@@ -136,28 +160,25 @@ export function calculateMonthlyRevenue(
       inboundClosedWon += existingPipeline.inboundCore * existingPipeline.winRate;
       outboundClosedWon += existingPipeline.outboundCore * existingPipeline.winRate;
       npInboundClosedWon += existingPipeline.inboundNewProduct * existingPipeline.winRate;
-      npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
     }
 
     // ── Deals ──
     const ibAcv = inputs.newBusiness.inbound.acv || 1;
     const obAcv = inputs.newBusiness.outbound.acv || 1;
     const npIbAcv = inputs.newProduct.inbound.acv || 1;
-    const npObAcv = inputs.newProduct.outbound.acv || 1;
 
     const inboundDeals = inboundClosedWon / ibAcv;
     const outboundDeals = outboundClosedWon / obAcv;
     const npInboundDeals = npInboundClosedWon / npIbAcv;
-    const npOutboundDeals = npOutboundClosedWon / npObAcv;
 
     // ── Expansion (pipeline waterfall) & Churn ──
-    const expansionRevenue = expCycleIdx >= 0 ? expansionPipeline[expCycleIdx] * safeExpansion.winRate : 0;
+    const expansionRevenue = expCycleIdx >= 0 ? (expansionPipeline[expCycleIdx] ?? 0) * safeExpansion.winRate : 0;
     const churnRevenue = -(currentARR * inputs.churn.monthlyChurnRate);
 
     // ── Total new ARR this month ──
     const totalNewARR =
       inboundClosedWon + outboundClosedWon +
-      npInboundClosedWon + npOutboundClosedWon +
+      npInboundClosedWon +
       expansionRevenue + churnRevenue;
 
     currentARR += totalNewARR;
@@ -167,13 +188,11 @@ export function calculateMonthlyRevenue(
       inboundPipelineCreated: ib.pipeline,
       outboundPipelineCreated: obPipeline,
       newProductInboundPipelineCreated: npIbPipeline,
-      newProductOutboundPipelineCreated: npObPipeline,
       hisRequired: ib.his,
       newProductHisRequired: npIbHis,
       inboundClosedWon,
       outboundClosedWon,
       newProductInboundClosedWon: npInboundClosedWon,
-      newProductOutboundClosedWon: npOutboundClosedWon,
       expansionRevenue,
       churnRevenue,
       totalNewARR,
@@ -181,7 +200,6 @@ export function calculateMonthlyRevenue(
       inboundDeals,
       outboundDeals,
       newProductInboundDeals: npInboundDeals,
-      newProductOutboundDeals: npOutboundDeals,
     });
   }
 
@@ -202,13 +220,11 @@ export function rollUpToQuarters(monthly: MonthlyResult[]): QuarterlyResult[] {
       inboundPipelineCreated: m.reduce((s, r) => s + r.inboundPipelineCreated, 0),
       outboundPipelineCreated: m.reduce((s, r) => s + r.outboundPipelineCreated, 0),
       newProductInboundPipelineCreated: m.reduce((s, r) => s + r.newProductInboundPipelineCreated, 0),
-      newProductOutboundPipelineCreated: m.reduce((s, r) => s + r.newProductOutboundPipelineCreated, 0),
       hisRequired: m.reduce((s, r) => s + r.hisRequired, 0),
       newProductHisRequired: m.reduce((s, r) => s + r.newProductHisRequired, 0),
       inboundClosedWon: m.reduce((s, r) => s + r.inboundClosedWon, 0),
       outboundClosedWon: m.reduce((s, r) => s + r.outboundClosedWon, 0),
       newProductInboundClosedWon: m.reduce((s, r) => s + r.newProductInboundClosedWon, 0),
-      newProductOutboundClosedWon: m.reduce((s, r) => s + r.newProductOutboundClosedWon, 0),
       expansionRevenue: m.reduce((s, r) => s + r.expansionRevenue, 0),
       churnRevenue: m.reduce((s, r) => s + r.churnRevenue, 0),
       totalNewARR: m.reduce((s, r) => s + r.totalNewARR, 0),
@@ -237,15 +253,14 @@ export function calculateGap(
       gapNewARR: t.totalNewARR - h.totalNewARR,
       inboundClosedWonGap: (t.inboundClosedWon + t.newProductInboundClosedWon) -
         (h.inboundClosedWon + h.newProductInboundClosedWon),
-      outboundClosedWonGap: (t.outboundClosedWon + t.newProductOutboundClosedWon) -
-        (h.outboundClosedWon + h.newProductOutboundClosedWon),
+      outboundClosedWonGap: t.outboundClosedWon - h.outboundClosedWon,
       expansionGap: t.expansionRevenue - h.expansionRevenue,
       churnGap: t.churnRevenue - h.churnRevenue,
       pipelineGap:
         (t.inboundPipelineCreated + t.outboundPipelineCreated +
-          t.newProductInboundPipelineCreated + t.newProductOutboundPipelineCreated) -
+          t.newProductInboundPipelineCreated) -
         (h.inboundPipelineCreated + h.outboundPipelineCreated +
-          h.newProductInboundPipelineCreated + h.newProductOutboundPipelineCreated),
+          h.newProductInboundPipelineCreated),
     };
   });
 }
@@ -299,9 +314,6 @@ export function applyStrategicBetsForMonth(
         case 'newProductInboundMixPct':
           modified.newProduct.inbound.hisMonthly *= scale;
           break;
-        case 'newProductOutboundMixPct':
-          modified.newProduct.outbound.pipelineMonthly *= scale;
-          break;
         case 'expansionMixPct':
           modified.expansion.pipelineMonthly *= scale;
           break;
@@ -316,20 +328,22 @@ export function applyStrategicBetsForMonth(
       (modified.expansion as unknown as Record<string, number>)[bet.metric] = effectiveValue;
     } else if (bet.category === 'churn' && bet.metric === 'monthlyChurnRate') {
       modified.churn.monthlyChurnRate = effectiveValue;
-    } else if (bet.category === 'newBusiness' || bet.category === 'newProduct') {
-      const cat = bet.category === 'newBusiness' ? modified.newBusiness : modified.newProduct;
+    } else if (bet.category === 'newBusiness') {
       if (bet.channel === 'inbound') {
-        (cat.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
+        (modified.newBusiness.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
       } else if (bet.channel === 'outbound') {
-        (cat.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
+        (modified.newBusiness.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
       } else {
-        if (bet.metric in cat.inbound) {
-          (cat.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
+        if (bet.metric in modified.newBusiness.inbound) {
+          (modified.newBusiness.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
         }
-        if (bet.metric in cat.outbound) {
-          (cat.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
+        if (bet.metric in modified.newBusiness.outbound) {
+          (modified.newBusiness.outbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
         }
       }
+    } else if (bet.category === 'newProduct') {
+      // New Product only has inbound
+      (modified.newProduct.inbound as unknown as Record<string, number>)[bet.metric] = effectiveValue;
     }
   }
 
@@ -363,16 +377,35 @@ export function runModelWithBets(
 ): ModelRun {
   const results: MonthlyResult[] = [];
 
-  const inboundCorePipeline: number[] = [];
-  const outboundCorePipeline: number[] = [];
-  const inboundNewProdPipeline: number[] = [];
-  const outboundNewProdPipeline: number[] = [];
-  const expansionPipelineBets: number[] = [];
-
   // Pre-compute per-month inputs
   const monthlyInputs: RevenueBreakdown[] = [];
   for (let i = 0; i < 12; i++) {
     monthlyInputs[i] = applyStrategicBetsForMonth(baseline, bets, i + 1);
+  }
+
+  // Pre-seed pipeline arrays for waterfall (same as calculateMonthlyRevenue)
+  const maxCycleBets = Math.max(
+    Math.round(baseline.newBusiness.inbound.salesCycleMonths || 0),
+    Math.round(baseline.newBusiness.outbound.salesCycleMonths || 0),
+    Math.round(baseline.newProduct.inbound.salesCycleMonths || 0),
+    Math.round((baseline.expansion.salesCycleMonths ?? 0)),
+    0,
+  );
+  const PREB = maxCycleBets;
+  const inboundCorePipeline: number[] = [];
+  const outboundCorePipeline: number[] = [];
+  const inboundNewProdPipeline: number[] = [];
+  const expansionPipelineBets: number[] = [];
+
+  const ibSteadyB = calcInboundPipeline(baseline.newBusiness.inbound, 1, 1).pipeline;
+  const obSteadyB = calcOutboundPipeline(baseline.newBusiness.outbound, 1, 1);
+  const npIbSteadyB = (baseline.newProduct.inbound.hisMonthly * baseline.newProduct.inbound.hisToPipelineRate * baseline.newProduct.inbound.acv) || 0;
+  const expSteadyB = calcOutboundPipeline({ pipelineMonthly: baseline.expansion.pipelineMonthly ?? 0, winRate: baseline.expansion.winRate ?? 0, acv: baseline.expansion.acv ?? 0, salesCycleMonths: baseline.expansion.salesCycleMonths ?? 0 }, 1, 1);
+  for (let p = 0; p < PREB; p++) {
+    inboundCorePipeline[p] = ibSteadyB;
+    outboundCorePipeline[p] = obSteadyB;
+    inboundNewProdPipeline[p] = npIbSteadyB;
+    expansionPipelineBets[p] = expSteadyB;
   }
 
   let currentARR = startingARR;
@@ -385,20 +418,17 @@ export function runModelWithBets(
 
     // Pipeline creation uses this month's inputs
     const ib = calcInboundPipeline(inputs.newBusiness.inbound, seasonWeight, rampMult);
-    inboundCorePipeline[i] = ib.pipeline;
+    inboundCorePipeline[PREB + i] = ib.pipeline;
 
     const obPipeline = calcOutboundPipeline(inputs.newBusiness.outbound, seasonWeight, rampMult);
-    outboundCorePipeline[i] = obPipeline;
+    outboundCorePipeline[PREB + i] = obPipeline;
 
     // New product: pipeline-based (same as outbound), not HIS-based
     const npIbPipelineBets = calcOutboundPipeline(
       { pipelineMonthly: inputs.newProduct.inbound.hisMonthly * inputs.newProduct.inbound.hisToPipelineRate * inputs.newProduct.inbound.acv || 0, winRate: inputs.newProduct.inbound.winRate, acv: inputs.newProduct.inbound.acv, salesCycleMonths: inputs.newProduct.inbound.salesCycleMonths },
       seasonWeight, rampMult,
     );
-    inboundNewProdPipeline[i] = npIbPipelineBets;
-
-    const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
-    outboundNewProdPipeline[i] = npObPipeline;
+    inboundNewProdPipeline[PREB + i] = npIbPipelineBets;
 
     // Expansion pipeline (guard against legacy data)
     const safeExpBets: OutboundFunnelInputs = {
@@ -408,56 +438,48 @@ export function runModelWithBets(
       salesCycleMonths: inputs.expansion.salesCycleMonths ?? 0,
     };
     const expPipeBets = calcOutboundPipeline(safeExpBets, seasonWeight, rampMult);
-    expansionPipelineBets[i] = expPipeBets;
+    expansionPipelineBets[PREB + i] = expPipeBets;
 
     // Closed Won uses the closing month's win rate but pipeline from creation month
-    const ibCycleIdx = i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
-    const obCycleIdx = i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
-    const npIbCycleIdx = i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
-    const npObCycleIdx = i - Math.round(inputs.newProduct.outbound.salesCycleMonths);
-    const expCycleIdxBets = i - Math.round(safeExpBets.salesCycleMonths);
+    const ibCycleIdx = PREB + i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
+    const obCycleIdx = PREB + i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
+    const npIbCycleIdx = PREB + i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
+    const expCycleIdxBets = PREB + i - Math.round(safeExpBets.salesCycleMonths);
 
     let inboundClosedWon = 0;
     let outboundClosedWon = 0;
     let npInboundClosedWon = 0;
-    let npOutboundClosedWon = 0;
 
     if (ibCycleIdx >= 0) {
-      inboundClosedWon = inboundCorePipeline[ibCycleIdx] * inputs.newBusiness.inbound.winRate;
+      inboundClosedWon = (inboundCorePipeline[ibCycleIdx] ?? 0) * inputs.newBusiness.inbound.winRate;
     }
     if (obCycleIdx >= 0) {
-      outboundClosedWon = outboundCorePipeline[obCycleIdx] * inputs.newBusiness.outbound.winRate;
+      outboundClosedWon = (outboundCorePipeline[obCycleIdx] ?? 0) * inputs.newBusiness.outbound.winRate;
     }
     if (npIbCycleIdx >= 0) {
-      npInboundClosedWon = inboundNewProdPipeline[npIbCycleIdx] * inputs.newProduct.inbound.winRate;
-    }
-    if (npObCycleIdx >= 0) {
-      npOutboundClosedWon = outboundNewProdPipeline[npObCycleIdx] * inputs.newProduct.outbound.winRate;
+      npInboundClosedWon = (inboundNewProdPipeline[npIbCycleIdx] ?? 0) * inputs.newProduct.inbound.winRate;
     }
 
     if (month === existingPipeline.expectedCloseMonth) {
       inboundClosedWon += existingPipeline.inboundCore * existingPipeline.winRate;
       outboundClosedWon += existingPipeline.outboundCore * existingPipeline.winRate;
       npInboundClosedWon += existingPipeline.inboundNewProduct * existingPipeline.winRate;
-      npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
     }
 
     const ibAcv = inputs.newBusiness.inbound.acv || 1;
     const obAcv = inputs.newBusiness.outbound.acv || 1;
     const npIbAcv = inputs.newProduct.inbound.acv || 1;
-    const npObAcv = inputs.newProduct.outbound.acv || 1;
 
     const inboundDeals = inboundClosedWon / ibAcv;
     const outboundDeals = outboundClosedWon / obAcv;
     const npInboundDeals = npInboundClosedWon / npIbAcv;
-    const npOutboundDeals = npOutboundClosedWon / npObAcv;
 
-    const expansionRevenue = expCycleIdxBets >= 0 ? expansionPipelineBets[expCycleIdxBets] * safeExpBets.winRate : 0;
+    const expansionRevenue = expCycleIdxBets >= 0 ? (expansionPipelineBets[expCycleIdxBets] ?? 0) * safeExpBets.winRate : 0;
     const churnRevenue = -(currentARR * inputs.churn.monthlyChurnRate);
 
     const totalNewARR =
       inboundClosedWon + outboundClosedWon +
-      npInboundClosedWon + npOutboundClosedWon +
+      npInboundClosedWon +
       expansionRevenue + churnRevenue;
 
     currentARR += totalNewARR;
@@ -467,13 +489,11 @@ export function runModelWithBets(
       inboundPipelineCreated: ib.pipeline,
       outboundPipelineCreated: obPipeline,
       newProductInboundPipelineCreated: npIbPipelineBets,
-      newProductOutboundPipelineCreated: npObPipeline,
       hisRequired: ib.his,
       newProductHisRequired: 0,
       inboundClosedWon,
       outboundClosedWon,
       newProductInboundClosedWon: npInboundClosedWon,
-      newProductOutboundClosedWon: npOutboundClosedWon,
       expansionRevenue,
       churnRevenue,
       totalNewARR,
@@ -481,7 +501,6 @@ export function runModelWithBets(
       inboundDeals,
       outboundDeals,
       newProductInboundDeals: npInboundDeals,
-      newProductOutboundDeals: npOutboundDeals,
     });
   }
 
@@ -501,20 +520,18 @@ export function computeChannelMix(model: ModelRun): ChannelMix {
   const ibCW = m.reduce((s, r) => s + r.inboundClosedWon, 0);
   const obCW = m.reduce((s, r) => s + r.outboundClosedWon, 0);
   const npIbCW = m.reduce((s, r) => s + r.newProductInboundClosedWon, 0);
-  const npObCW = m.reduce((s, r) => s + r.newProductOutboundClosedWon, 0);
   const expRev = m.reduce((s, r) => s + r.expansionRevenue, 0);
   const churnRev = m.reduce((s, r) => s + Math.abs(r.churnRevenue), 0);
 
-  const total = ibCW + obCW + npIbCW + npObCW + expRev + churnRev;
+  const total = ibCW + obCW + npIbCW + expRev + churnRev;
   if (total === 0) {
-    return { inbound: 0, outbound: 0, newProductInbound: 0, newProductOutbound: 0, expansion: 0, churn: 0 };
+    return { inbound: 0, outbound: 0, newProductInbound: 0, expansion: 0, churn: 0 };
   }
 
   return {
     inbound: ibCW / total,
     outbound: obCW / total,
     newProductInbound: npIbCW / total,
-    newProductOutbound: npObCW / total,
     expansion: expRev / total,
     churn: churnRev / total,
   };
@@ -559,13 +576,6 @@ export function calculatePipelineDeadlines(
       getPipeline: (m) => m.newProductInboundPipelineCreated,
       isInbound: true,
       hisRate: targets.newProduct.inbound.hisToPipelineRate,
-    },
-    {
-      channel: 'newProductOutbound',
-      salesCycle: targets.newProduct.outbound.salesCycleMonths,
-      getClosedWon: (m) => m.newProductOutboundClosedWon,
-      getPipeline: (m) => m.newProductOutboundPipelineCreated,
-      isInbound: false,
     },
   ];
 
@@ -630,7 +640,6 @@ export function buildPipelineTimingMap(
     { label: 'Inbound Qualified Pipeline $', salesCycle: targets.newBusiness.inbound.salesCycleMonths },
     { label: 'Outbound Qualified Pipeline $', salesCycle: targets.newBusiness.outbound.salesCycleMonths },
     { label: 'NP Inbound Qualified Pipeline $', salesCycle: targets.newProduct.inbound.salesCycleMonths },
-    { label: 'NP Outbound Qualified Pipeline $', salesCycle: targets.newProduct.outbound.salesCycleMonths },
   ];
 
   for (const ch of channels) {
@@ -677,7 +686,7 @@ export function applyChannelConfig(
 
   // Ensure newProduct exists (backfill for old plans)
   if (!modified.newProduct) {
-    modified.newProduct = { inbound: { ...ZERO_INBOUND }, outbound: { ...ZERO_OUTBOUND } };
+    modified.newProduct = { inbound: { ...ZERO_INBOUND } };
   }
 
   if (mode === 'targets') {
@@ -689,7 +698,6 @@ export function applyChannelConfig(
     }
     if (!config.hasNewProduct && !config.hasEmergingNewProduct) {
       modified.newProduct.inbound = { ...ZERO_INBOUND };
-      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
     }
   } else {
     // historical mode: zero out based on history toggles
@@ -701,7 +709,6 @@ export function applyChannelConfig(
     }
     if (!config.hasNewProductHistory) {
       modified.newProduct.inbound = { ...ZERO_INBOUND };
-      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
     }
   }
 
@@ -715,7 +722,6 @@ export function applyChannelConfig(
     }
     if (config.hasEmergingNewProduct) {
       modified.newProduct.inbound = { ...ZERO_INBOUND };
-      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
     }
   }
 
@@ -819,17 +825,11 @@ export function runTopDownModel(
     const month = (i + 1) as Month;
     const monthFrac = weights[i] / totalWeight;
 
-    // ── Closed Won targets for this month ──
-    let ibCW = annualIbCW * monthFrac;
-    let obCW = annualObCW * monthFrac;
+    // ── Closed Won targets for this month (pure top-down allocation) ──
+    const ibCW = annualIbCW * monthFrac;
+    const obCW = annualObCW * monthFrac;
     const npIbCW = annualNpCW * monthFrac;
     const expRev = annualExpRev * monthFrac;
-
-    // Existing pipeline closes in its expected month
-    if (month === existingPipeline.expectedCloseMonth) {
-      ibCW += (existingPipeline.inboundCore || 0) * (existingPipeline.winRate || 0);
-      obCW += (existingPipeline.outboundCore || 0) * (existingPipeline.winRate || 0);
-    }
 
     // ── Back-calculate pipeline needed ──
     const ibPipeline = ibWR > 0 ? ibCW / ibWR : 0;
@@ -857,13 +857,11 @@ export function runTopDownModel(
       inboundPipelineCreated: ibPipeline,
       outboundPipelineCreated: obPipeline,
       newProductInboundPipelineCreated: npIbPipeline,
-      newProductOutboundPipelineCreated: 0,
       hisRequired,
       newProductHisRequired: 0,
       inboundClosedWon: ibCW,
       outboundClosedWon: obCW,
       newProductInboundClosedWon: npIbCW,
-      newProductOutboundClosedWon: 0,
       expansionRevenue: expRev,
       churnRevenue,
       totalNewARR,
@@ -871,7 +869,6 @@ export function runTopDownModel(
       inboundDeals: ibDeals,
       outboundDeals: obDeals,
       newProductInboundDeals: npIbDeals,
-      newProductOutboundDeals: 0,
     });
   }
 
@@ -910,7 +907,6 @@ export function capModelAtTarget(model: ModelRun, targetARR: number, startingARR
       inboundClosedWon: m.inboundClosedWon * ratio,
       outboundClosedWon: m.outboundClosedWon * ratio,
       newProductInboundClosedWon: m.newProductInboundClosedWon * ratio,
-      newProductOutboundClosedWon: m.newProductOutboundClosedWon * ratio,
       expansionRevenue: m.expansionRevenue * ratio,
       churnRevenue: m.churnRevenue * ratio,
       totalNewARR: scaledNewARR,
@@ -918,7 +914,6 @@ export function capModelAtTarget(model: ModelRun, targetARR: number, startingARR
       inboundDeals: m.inboundDeals * ratio,
       outboundDeals: m.outboundDeals * ratio,
       newProductInboundDeals: m.newProductInboundDeals * ratio,
-      newProductOutboundDeals: m.newProductOutboundDeals * ratio,
     });
   }
 
@@ -977,7 +972,6 @@ export function runModelWithActuals(
   const ibCorePipe: number[] = [];
   const obCorePipe: number[] = [];
   const ibNewProdPipe: number[] = [];
-  const obNewProdPipe: number[] = [];
   const expPipe: number[] = [];
 
   const results: MonthlyResult[] = [];
@@ -1001,29 +995,25 @@ export function runModelWithActuals(
       ibCorePipe[i] = ibPipe;
       obCorePipe[i] = obPipe;
       ibNewProdPipe[i] = p.newProductInboundPipelineCreated;
-      obNewProdPipe[i] = p.newProductOutboundPipelineCreated;
 
       const ibCW = or(actual.inboundClosedWon, p.inboundClosedWon);
       const obCW = or(actual.outboundClosedWon, p.outboundClosedWon);
       const npIbCW = or(actual.newProductInboundClosedWon, p.newProductInboundClosedWon);
-      const npObCW = or(actual.newProductOutboundClosedWon, p.newProductOutboundClosedWon);
       const exp = or(actual.expansionRevenue, p.expansionRevenue);
       const churn = or(actual.churnRevenue, p.churnRevenue);
 
-      const totalNewARR = ibCW + obCW + npIbCW + npObCW + exp + churn;
+      const totalNewARR = ibCW + obCW + npIbCW + exp + churn;
       currentARR += totalNewARR;
 
       const ibAcv = actual.inboundACV || inputs.newBusiness.inbound.acv || 1;
       const obAcv = actual.outboundACV || inputs.newBusiness.outbound.acv || 1;
       const npIbAcv = recal.newProduct.inbound.acv || 1;
-      const npObAcv = recal.newProduct.outbound.acv || 1;
 
       results.push({
         month,
         inboundPipelineCreated: ibPipe,
         outboundPipelineCreated: obPipe,
         newProductInboundPipelineCreated: p.newProductInboundPipelineCreated,
-        newProductOutboundPipelineCreated: p.newProductOutboundPipelineCreated,
         hisRequired: actual.hisVolume > 0
           ? actual.hisVolume
           : or(
@@ -1036,7 +1026,6 @@ export function runModelWithActuals(
         inboundClosedWon: ibCW,
         outboundClosedWon: obCW,
         newProductInboundClosedWon: npIbCW,
-        newProductOutboundClosedWon: npObCW,
         expansionRevenue: exp,
         churnRevenue: churn,
         totalNewARR,
@@ -1044,14 +1033,12 @@ export function runModelWithActuals(
         inboundDeals: ibAcv > 0 ? ibCW / ibAcv : 0,
         outboundDeals: obAcv > 0 ? obCW / obAcv : 0,
         newProductInboundDeals: npIbAcv > 0 ? npIbCW / npIbAcv : 0,
-        newProductOutboundDeals: npObAcv > 0 ? npObCW / npObAcv : 0,
       });
     } else if (isCompleted) {
       // ── Completed month WITHOUT actuals entry: use projected, track ARR ──
       ibCorePipe[i] = p.inboundPipelineCreated;
       obCorePipe[i] = p.outboundPipelineCreated;
       ibNewProdPipe[i] = p.newProductInboundPipelineCreated;
-      obNewProdPipe[i] = p.newProductOutboundPipelineCreated;
 
       currentARR += p.totalNewARR;
       results.push({ ...p, cumulativeARR: currentARR });
@@ -1071,31 +1058,25 @@ export function runModelWithActuals(
         seasonWeight, rampMult,
       );
       ibNewProdPipe[i] = npIbPipelineActuals;
-      const npObPipeline = calcOutboundPipeline(recal.newProduct.outbound, seasonWeight, rampMult);
-      obNewProdPipe[i] = npObPipeline;
 
       // Closed Won from waterfall (pipeline created N months ago × win rate)
       const ibCycleIdx = i - Math.round(recal.newBusiness.inbound.salesCycleMonths);
       const obCycleIdx = i - Math.round(recal.newBusiness.outbound.salesCycleMonths);
       const npIbCycleIdx = i - Math.round(recal.newProduct.inbound.salesCycleMonths);
-      const npObCycleIdx = i - Math.round(recal.newProduct.outbound.salesCycleMonths);
 
       let inboundClosedWon = 0;
       let outboundClosedWon = 0;
       let npInboundClosedWon = 0;
-      let npOutboundClosedWon = 0;
 
       if (ibCycleIdx >= 0) inboundClosedWon = ibCorePipe[ibCycleIdx] * recal.newBusiness.inbound.winRate;
       if (obCycleIdx >= 0) outboundClosedWon = obCorePipe[obCycleIdx] * recal.newBusiness.outbound.winRate;
       if (npIbCycleIdx >= 0) npInboundClosedWon = ibNewProdPipe[npIbCycleIdx] * recal.newProduct.inbound.winRate;
-      if (npObCycleIdx >= 0) npOutboundClosedWon = obNewProdPipe[npObCycleIdx] * recal.newProduct.outbound.winRate;
 
       // Pre-existing pipeline closes in its expected month
       if (month === existingPipeline.expectedCloseMonth) {
         inboundClosedWon += existingPipeline.inboundCore * existingPipeline.winRate;
         outboundClosedWon += existingPipeline.outboundCore * existingPipeline.winRate;
         npInboundClosedWon += existingPipeline.inboundNewProduct * existingPipeline.winRate;
-        npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
       }
 
       // Expansion pipeline (guard against legacy data)
@@ -1114,11 +1095,10 @@ export function runModelWithActuals(
       const ibAcv = recal.newBusiness.inbound.acv || 1;
       const obAcv = recal.newBusiness.outbound.acv || 1;
       const npIbAcv = recal.newProduct.inbound.acv || 1;
-      const npObAcv = recal.newProduct.outbound.acv || 1;
 
       const totalNewARR =
         inboundClosedWon + outboundClosedWon +
-        npInboundClosedWon + npOutboundClosedWon +
+        npInboundClosedWon +
         expansionRevenue + churnRevenue;
 
       currentARR += totalNewARR;
@@ -1128,13 +1108,11 @@ export function runModelWithActuals(
         inboundPipelineCreated: ib.pipeline,
         outboundPipelineCreated: obPipeline,
         newProductInboundPipelineCreated: npIbPipelineActuals,
-        newProductOutboundPipelineCreated: npObPipeline,
         hisRequired: ib.his,
         newProductHisRequired: 0,
         inboundClosedWon,
         outboundClosedWon,
         newProductInboundClosedWon: npInboundClosedWon,
-        newProductOutboundClosedWon: npOutboundClosedWon,
         expansionRevenue,
         churnRevenue,
         totalNewARR,
@@ -1142,7 +1120,6 @@ export function runModelWithActuals(
         inboundDeals: inboundClosedWon / ibAcv,
         outboundDeals: outboundClosedWon / obAcv,
         newProductInboundDeals: npInboundClosedWon / npIbAcv,
-        newProductOutboundDeals: npOutboundClosedWon / npObAcv,
       });
     }
   }
@@ -1223,7 +1200,6 @@ export function applyMarketInsights(
         }
         if (ch === 'newProduct' || ch === 'all') {
           m.newProductInboundPipelineCreated *= multiplier;
-          m.newProductOutboundPipelineCreated *= multiplier;
           m.newProductHisRequired *= multiplier;
         }
       }
@@ -1239,9 +1215,7 @@ export function applyMarketInsights(
         }
         if (ch === 'newProduct' || ch === 'all') {
           m.newProductInboundClosedWon *= multiplier;
-          m.newProductOutboundClosedWon *= multiplier;
           m.newProductInboundDeals *= multiplier;
-          m.newProductOutboundDeals *= multiplier;
         }
       }
 
@@ -1269,7 +1243,6 @@ export function applyMarketInsights(
         }
         if (ch === 'newProduct' || ch === 'all') {
           m.newProductInboundClosedWon *= multiplier;
-          m.newProductOutboundClosedWon *= multiplier;
         }
       }
 
@@ -1285,7 +1258,7 @@ export function applyMarketInsights(
     const m = modified[i];
     m.totalNewARR =
       m.inboundClosedWon + m.outboundClosedWon +
-      m.newProductInboundClosedWon + m.newProductOutboundClosedWon +
+      m.newProductInboundClosedWon +
       m.expansionRevenue + m.churnRevenue;
     currentARR += m.totalNewARR;
     m.cumulativeARR = currentARR;
@@ -1338,22 +1311,19 @@ export function applyMarketInsightsNormalized(
     m.inboundClosedWon *= scale;
     m.outboundClosedWon *= scale;
     m.newProductInboundClosedWon *= scale;
-    m.newProductOutboundClosedWon *= scale;
     m.expansionRevenue *= scale;
     m.churnRevenue *= scale;
     m.inboundDeals *= scale;
     m.outboundDeals *= scale;
     m.newProductInboundDeals *= scale;
-    m.newProductOutboundDeals *= scale;
     m.inboundPipelineCreated *= scale;
     m.outboundPipelineCreated *= scale;
     m.newProductInboundPipelineCreated *= scale;
-    m.newProductOutboundPipelineCreated *= scale;
     m.hisRequired *= scale;
     m.newProductHisRequired *= scale;
     m.totalNewARR =
       m.inboundClosedWon + m.outboundClosedWon +
-      m.newProductInboundClosedWon + m.newProductOutboundClosedWon +
+      m.newProductInboundClosedWon +
       m.expansionRevenue + m.churnRevenue;
     curARR += m.totalNewARR;
     m.cumulativeARR = curARR;

@@ -214,25 +214,6 @@ function buildRows(targets?: RevenueBreakdown, cc?: ChannelConfig): TableRow[] {
     { label: 'New Product Inbound Customers', monthlyLabel: 'NP Inbound Customers', getMonthly: (m) => m.newProductInboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingNP },
   );
 
-  // ── New Product Outbound group ──
-  rows.push(
-    { label: 'NP Outbound Qualified Pipeline $', monthlyLabel: 'NP OB Qual. Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull, showGrowth: true, isEmerging: isEmergingNP },
-  );
-  if (targets) {
-    const npOb = targets.newProduct.outbound;
-    rows.push(
-      { label: 'Win Rate', getMonthly: () => npOb.winRate, getQuarterly: () => npOb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
-      { label: 'ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
-      { label: 'Sales Cycle', getMonthly: () => npOb.salesCycleMonths, getQuarterly: () => npOb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
-    );
-  }
-  rows.push(
-    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true, showGrowth: true, isEmerging: isEmergingNP },
-  );
-  rows.push(
-    { label: 'New Product Outbound Customers', monthlyLabel: 'NP Outbound Customers', getMonthly: (m) => m.newProductOutboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductOutboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingNP },
-  );
-
   // ── Expansion group ──
   if (targets) {
     rows.push(

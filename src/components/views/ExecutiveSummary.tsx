@@ -139,8 +139,8 @@ export default function ExecutiveSummary() {
       gaps.push({ label: 'outbound closed-won revenue', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: formatCurrency });
     }
     if (cc.hasNewProduct) {
-      const planVal = sumM(pm, (m) => m.newProductInboundClosedWon + m.newProductOutboundClosedWon);
-      const sqVal = sumM(sm, (m) => m.newProductInboundClosedWon + m.newProductOutboundClosedWon);
+      const planVal = sumM(pm, (m) => m.newProductInboundClosedWon);
+      const sqVal = sumM(sm, (m) => m.newProductInboundClosedWon);
       gaps.push({ label: 'new product revenue', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: formatCurrency });
     }
     if (cc.hasExpansion) {
@@ -360,8 +360,8 @@ export default function ExecutiveSummary() {
                     customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
                   }
                   if ((bet.category === 'newBusiness' || bet.category === 'newProduct') && (bet.channel === 'outbound' || !bet.channel)) {
-                    const cwGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductOutboundClosedWon : (m: MonthlyResult) => m.outboundClosedWon;
-                    const dealGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductOutboundDeals : (m: MonthlyResult) => m.outboundDeals;
+                    const cwGetter = bet.category === 'newProduct' ? (_m: MonthlyResult) => 0 : (m: MonthlyResult) => m.outboundClosedWon;
+                    const dealGetter = bet.category === 'newProduct' ? (_m: MonthlyResult) => 0 : (m: MonthlyResult) => m.outboundDeals;
                     closedWonDelta += sumM(bm, cwGetter) - sumM(sm, cwGetter);
                     customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
                   }
@@ -460,12 +460,11 @@ export default function ExecutiveSummary() {
           }
           if (cc.hasNewProduct) {
             const scIb = effectiveTargets.newProduct.inbound.salesCycleMonths;
-            const scOb = effectiveTargets.newProduct.outbound.salesCycleMonths;
             planModel.quarterly.forEach((q, qi) => {
-              const npCW = q.newProductInboundClosedWon + q.newProductOutboundClosedWon;
-              const npPipe = q.newProductInboundPipelineCreated + q.newProductOutboundPipelineCreated;
+              const npCW = q.newProductInboundClosedWon;
+              const npPipe = q.newProductInboundPipelineCreated;
               if (npCW > 0) {
-                const sc = Math.max(scIb, scOb);
+                const sc = scIb;
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
                 milestones.push({ quarter: quarters[qi], channel: 'New Product', closedWon: npCW, pipeline: npPipe, createByMonth: createBy, isPast: isInYear && createBy < cm });
               }
@@ -778,8 +777,8 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
 
   // New Product
   if (cc.hasNewProduct) {
-    addCurrency('New Product Won', (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, { isClosedWon: true });
-    addNumber('NP New Customers', (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0));
+    addCurrency('New Product Won', (q) => q.newProductInboundClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0));
   }
 
   // Expansion
@@ -888,8 +887,8 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
   }
 
   if (cc.hasNewProduct) {
-    addCurrency('New Product Won', (m) => m.newProductInboundClosedWon + m.newProductOutboundClosedWon, { isClosedWon: true });
-    addNumber('NP New Customers', (m) => m.newProductInboundDeals + m.newProductOutboundDeals);
+    addCurrency('New Product Won', (m) => m.newProductInboundClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (m) => m.newProductInboundDeals);
   }
 
   if (cc.hasExpansion) {
@@ -997,8 +996,8 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
 
   // New Product
   if (cc.hasNewProduct) {
-    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, getSq: (q) => q.newProductInboundClosedWon + q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-    metrics.push({ label: 'NP New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals + m.newProductOutboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductInboundClosedWon, getSq: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
+    metrics.push({ label: 'NP New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
   }
 
   // Expansion

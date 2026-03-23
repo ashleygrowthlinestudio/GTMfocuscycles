@@ -427,12 +427,6 @@ function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): Rev
         acv: avg('newProductACV'),
         salesCycleMonths: clampSalesCycle(avg('newProductSalesCycle')),
       },
-      outbound: {
-        pipelineMonthly: avg('newProductQualifiedPipeline') / 3,
-        winRate: avg('newProductWinRate'),
-        acv: avg('newProductACV'),
-        salesCycleMonths: clampSalesCycle(avg('newProductSalesCycle')),
-      },
     },
   };
 }
@@ -519,7 +513,7 @@ export default function Setup() {
       month, hisVolume: 0,
       inboundPipelineCreated: 0, outboundPipelineCreated: 0,
       inboundClosedWon: 0, outboundClosedWon: 0,
-      newProductInboundClosedWon: 0, newProductOutboundClosedWon: 0,
+      newProductInboundClosedWon: 0,
       expansionRevenue: 0, churnRevenue: 0,
       totalNewARR: 0, cumulativeARR: 0,
       inboundWinRate: 0, outboundWinRate: 0, hisToPipelineRate: 0,
@@ -651,7 +645,6 @@ export default function Setup() {
                         {cc.hasNewProduct && (
                           <>
                             <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">NP IB Won ($)</th>
-                            <th className="text-right py-2 px-2 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">NP OB Won ($)</th>
                           </>
                         )}
                         {cc.hasExpansion && (
@@ -689,7 +682,6 @@ export default function Setup() {
                             {cc.hasNewProduct && (
                               <>
                                 <td className="py-1 px-1"><input type="number" value={a.newProductInboundClosedWon} onChange={(e) => updateDetailedActual(m, 'newProductInboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
-                                <td className="py-1 px-1"><input type="number" value={a.newProductOutboundClosedWon} onChange={(e) => updateDetailedActual(m, 'newProductOutboundClosedWon', parseFloat(e.target.value) || 0)} step={1000} className="w-full text-right rounded border border-gray-300 py-1 px-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" /></td>
                               </>
                             )}
                             {cc.hasExpansion && (

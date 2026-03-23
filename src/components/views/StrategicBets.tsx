@@ -102,7 +102,7 @@ export default function StrategicBets() {
     const m = statusQuoModel.monthly;
     return m.reduce((s, r) =>
       s + r.inboundClosedWon + r.outboundClosedWon +
-      r.newProductInboundClosedWon + r.newProductOutboundClosedWon +
+      r.newProductInboundClosedWon +
       r.expansionRevenue + Math.abs(r.churnRevenue), 0);
   }, [statusQuoModel]);
 

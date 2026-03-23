@@ -16,7 +16,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   inbound: 'Inbound',
   outbound: 'Outbound',
   newProductInbound: 'NP Inbound',
-  newProductOutbound: 'NP Outbound',
 };
 
 function monthName(m: number): string {

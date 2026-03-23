@@ -62,8 +62,6 @@ export const DEFAULT_EXISTING_PIPELINE: ExistingPipeline = {
 
   inboundNewProduct: 0,
 
-  outboundNewProduct: 0,
-
   expectedCloseMonth: 2,
 
   winRate: 0.30,
@@ -136,18 +134,6 @@ export const DEFAULT_TARGETS: RevenueBreakdown = {
 
     },
 
-    outbound: {
-
-      pipelineMonthly: 100_000,
-
-      winRate: 0.15,
-
-      acv: 35_000,
-
-      salesCycleMonths: 3,
-
-    },
-
   },
 
 };
@@ -209,18 +195,6 @@ export const DEFAULT_HISTORICAL: RevenueBreakdown = {
       hisMonthly: 0,
 
       hisToPipelineRate: 0,
-
-      winRate: 0,
-
-      acv: 0,
-
-      salesCycleMonths: 0,
-
-    },
-
-    outbound: {
-
-      pipelineMonthly: 0,
 
       winRate: 0,
 

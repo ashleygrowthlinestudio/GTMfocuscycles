@@ -35,7 +35,6 @@ export interface RevenueBreakdown {
   };
   newProduct: {
     inbound: InboundFunnelInputs;
-    outbound: OutboundFunnelInputs;
   };
 }
 
@@ -55,7 +54,6 @@ export interface ExistingPipeline {
   inboundCore: number;           // $ value of inbound pipeline already in flight
   outboundCore: number;
   inboundNewProduct: number;
-  outboundNewProduct: number;
   expectedCloseMonth: Month;     // when this pipeline is expected to close
   winRate: number;               // expected win rate on existing pipeline
 }
@@ -86,7 +84,6 @@ export interface MonthlyActuals {
   inboundClosedWon: number;
   outboundClosedWon: number;
   newProductInboundClosedWon: number;
-  newProductOutboundClosedWon: number;
   expansionRevenue: number;
   churnRevenue: number;
   totalNewARR: number;
@@ -105,7 +102,6 @@ export interface MonthlyResult {
   inboundPipelineCreated: number;
   outboundPipelineCreated: number;
   newProductInboundPipelineCreated: number;
-  newProductOutboundPipelineCreated: number;
   // High-intent submissions
   hisRequired: number;
   newProductHisRequired: number;
@@ -113,7 +109,6 @@ export interface MonthlyResult {
   inboundClosedWon: number;
   outboundClosedWon: number;
   newProductInboundClosedWon: number;
-  newProductOutboundClosedWon: number;
   // Expansion & churn
   expansionRevenue: number;
   churnRevenue: number;          // negative
@@ -124,7 +119,6 @@ export interface MonthlyResult {
   inboundDeals: number;
   outboundDeals: number;
   newProductInboundDeals: number;
-  newProductOutboundDeals: number;
 }
 
 // ── Quarterly rollup ──────────────────────────────────────────
@@ -135,13 +129,11 @@ export interface QuarterlyResult {
   inboundPipelineCreated: number;
   outboundPipelineCreated: number;
   newProductInboundPipelineCreated: number;
-  newProductOutboundPipelineCreated: number;
   hisRequired: number;
   newProductHisRequired: number;
   inboundClosedWon: number;
   outboundClosedWon: number;
   newProductInboundClosedWon: number;
-  newProductOutboundClosedWon: number;
   expansionRevenue: number;
   churnRevenue: number;
   totalNewARR: number;
@@ -161,7 +153,6 @@ export type BetMetric =
   | 'inboundMixPct'
   | 'outboundMixPct'
   | 'newProductInboundMixPct'
-  | 'newProductOutboundMixPct'
   | 'expansionMixPct'
   | 'churnMixPct';
 
@@ -171,7 +162,6 @@ export interface ChannelMix {
   inbound: number;
   outbound: number;
   newProductInbound: number;
-  newProductOutbound: number;
   expansion: number;
   churn: number;
 }
@@ -328,7 +318,7 @@ export interface GapResult {
 }
 
 // ── Pipeline deadline ────────────────────────────────────────
-export type PipelineChannel = 'inbound' | 'outbound' | 'newProductInbound' | 'newProductOutbound';
+export type PipelineChannel = 'inbound' | 'outbound' | 'newProductInbound';
 
 export interface PipelineDeadline {
   closingMonth: number;

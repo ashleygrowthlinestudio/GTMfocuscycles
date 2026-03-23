@@ -70,12 +70,6 @@ function buildHistoricalBreakdown(quarters: QuarterlyHistoricalData[]): RevenueB
         acv: npACV,
         salesCycleMonths: npSalesCycle,
       },
-      outbound: {
-        pipelineMonthly: 0,
-        winRate: 0,
-        acv: 0,
-        salesCycleMonths: 0,
-      },
     },
     expansion: {
       pipelineMonthly: avg((q) => q.expansionPipeline) / 3,

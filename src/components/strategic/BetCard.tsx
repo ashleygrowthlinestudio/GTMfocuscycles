@@ -40,7 +40,6 @@ function getMixChannelLabel(metric: string): string {
     inboundMixPct: 'Inbound',
     outboundMixPct: 'Outbound',
     newProductInboundMixPct: 'NP Inbound',
-    newProductOutboundMixPct: 'NP Outbound',
     expansionMixPct: 'Expansion',
     churnMixPct: 'Churn',
   };
