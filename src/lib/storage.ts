@@ -47,6 +47,22 @@ export function loadPlan(): GTMPlan | null {
       plan.targetAllocations = { ...plan.targetAllocations, emergingInbound: 0, emergingOutbound: 0, emergingNewProduct: 0 };
     }
 
+    // Backfill expansion funnel fields for plans that used old expansionRate
+    if (plan.targets?.expansion) {
+      const exp = plan.targets.expansion as Record<string, unknown>;
+      if (exp.pipelineMonthly === undefined) exp.pipelineMonthly = 0;
+      if (exp.winRate === undefined) exp.winRate = 0;
+      if (exp.acv === undefined) exp.acv = 0;
+      if (exp.salesCycleMonths === undefined) exp.salesCycleMonths = 0;
+    }
+    if (plan.historical?.expansion) {
+      const exp = plan.historical.expansion as Record<string, unknown>;
+      if (exp.pipelineMonthly === undefined) exp.pipelineMonthly = 0;
+      if (exp.winRate === undefined) exp.winRate = 0;
+      if (exp.acv === undefined) exp.acv = 0;
+      if (exp.salesCycleMonths === undefined) exp.salesCycleMonths = 0;
+    }
+
     // Backfill market insights
     if (!plan.marketInsights) (plan as any).marketInsights = [];
 
