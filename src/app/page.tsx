@@ -19,11 +19,10 @@ export default function Home() {
   const filledQuarters = (plan.historicalQuarters ?? []).filter(isQuarterFilled).length;
   const showHistoricalWarning = activeTab !== 'setup' && filledQuarters < 4;
 
-  // Allocation validation (net-based: gross channels - churn = ARR gap)
+  // Allocation validation: revenue-generating channels must sum to 100%
   const allocations = plan.targetAllocations ?? { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
   const cc = plan.channelConfig;
-  const newARR = (plan.targetARR ?? 0) - (plan.startingARR ?? 0);
-  const { grossPct, churnPct, hasStartedAllocating } = useMemo(() => {
+  const { grossPct, hasStartedAllocating } = useMemo(() => {
     let gross = 0;
     if (cc.hasInbound) gross += allocations.inbound || 0;
     if (cc.hasOutbound) gross += allocations.outbound || 0;
@@ -32,12 +31,10 @@ export default function Home() {
     if (cc.hasEmergingInbound) gross += allocations.emergingInbound || 0;
     if (cc.hasEmergingOutbound) gross += allocations.emergingOutbound || 0;
     if (cc.hasEmergingNewProduct) gross += allocations.emergingNewProduct || 0;
-    const churn = cc.hasChurn ? (allocations.churn || 0) : 0;
-    return { grossPct: gross, churnPct: churn, hasStartedAllocating: gross > 0 || churn > 0 };
+    return { grossPct: gross, hasStartedAllocating: gross > 0 };
   }, [allocations, cc]);
   const isManualMode = (plan.targetAllocationMode ?? 'historical') === 'manual';
-  const netAmt = newARR * ((grossPct - churnPct) / 100);
-  const allocValid = !isManualMode || Math.abs(netAmt - newARR) < 1;
+  const allocValid = !isManualMode || Math.abs(grossPct - 100) < 0.01;
   // Only incomplete if user has started but hasn't finished
   const allocIncomplete = isManualMode && hasStartedAllocating && !allocValid;
   const showAllocWarning = activeTab !== 'setup' && allocIncomplete;

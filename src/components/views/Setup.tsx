@@ -53,6 +53,7 @@ interface TargetAllocationProps {
   startingARR: number;
   filledQuarters: number;
   historicalQuarters: QuarterlyHistoricalData[];
+  monthlyChurnRate: number;
   onModeChange: (mode: TargetAllocationMode) => void;
   onAllocationsChange: (alloc: TargetAllocations) => void;
 }
@@ -109,7 +110,7 @@ function computeHistoricalAllocations(
 
 function TargetAllocation({
   mode, allocations, channelConfig, targetARR, startingARR, filledQuarters,
-  historicalQuarters, onModeChange, onAllocationsChange,
+  historicalQuarters, monthlyChurnRate, onModeChange, onAllocationsChange,
 }: TargetAllocationProps) {
   const newARR = targetARR - startingARR;
   const activePositive = POSITIVE_CHANNELS.filter((ch) => channelConfig[ch.configKey]);
@@ -122,17 +123,15 @@ function TargetAllocation({
     [historicalQuarters, channelConfig],
   );
 
-  // Gross = sum of all positive channel %s; churn is subtracted for net
+  // Gross = sum of all revenue-generating channel %s; must equal 100%
   const grossPct = useMemo(
     () => allGrossChannels.reduce((s, ch) => s + (allocations[ch.key] || 0), 0),
     [allocations, allGrossChannels],
   );
-  const churnPct = hasChurn ? (allocations.churn || 0) : 0;
-  const netPct = grossPct - churnPct;
-  const grossAmt = newARR * (grossPct / 100);
-  const churnAmt = newARR * (churnPct / 100);
-  const netAmt = grossAmt - churnAmt;
-  const netValid = Math.abs(netAmt - newARR) < 1; // within $1 rounding
+  const grossValid = Math.abs(grossPct - 100) < 0.01;
+
+  // Expected churn — read-only, derived from churn rate × starting ARR
+  const expectedAnnualChurn = hasChurn ? startingARR * monthlyChurnRate * 12 : 0;
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 bg-white">
@@ -192,49 +191,29 @@ function TargetAllocation({
                   </div>
                 );
               })}
-              {/* Churn (drag) row — historical */}
-              {hasChurn && (() => {
-                const cPct = historicalAlloc.churn;
-                const cAmt = newARR * (cPct / 100);
+              {/* Total row — historical */}
+              {(() => {
+                const histGross = activePositive.reduce((s, ch) => s + historicalAlloc[ch.key], 0);
                 return (
-                  <div className="flex items-center justify-between py-1.5 px-3 rounded bg-red-50">
-                    <span className="text-sm font-medium text-red-700">Churn (drag)</span>
+                  <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
+                    <span className="text-sm font-semibold text-gray-700">Total</span>
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-red-600 w-16 text-right">-{cPct.toFixed(1)}%</span>
-                      <span className="text-sm font-semibold text-red-700 w-28 text-right">
-                        -{formatCurrency(cAmt)}
+                      <span className="text-sm font-semibold text-gray-700 w-16 text-right">
+                        {histGross.toFixed(1)}%
+                      </span>
+                      <span className="text-sm font-bold text-gray-900 w-28 text-right">
+                        {formatCurrency(newARR)}
                       </span>
                     </div>
                   </div>
                 );
               })()}
-              {/* Net New ARR total — historical */}
-              {(() => {
-                const histGross = activePositive.reduce((s, ch) => s + historicalAlloc[ch.key], 0);
-                const histChurn = hasChurn ? historicalAlloc.churn : 0;
-                const histNet = histGross - histChurn;
-                const histNetAmt = newARR * (histNet / 100);
-                return (
-                  <>
-                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
-                      <span className="text-sm font-semibold text-gray-700">Net New ARR</span>
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm font-semibold text-gray-700 w-16 text-right">
-                          {histNet.toFixed(1)}%
-                        </span>
-                        <span className="text-sm font-bold text-gray-900 w-28 text-right">
-                          {formatCurrency(histNetAmt)}
-                        </span>
-                      </div>
-                    </div>
-                    {hasChurn && (
-                      <p className="text-[10px] text-gray-400 px-3 mt-1">
-                        Gross New ARR: {histGross.toFixed(1)}% ({formatCurrency(newARR * (histGross / 100))}) &minus; Churn: -{histChurn.toFixed(1)}% (-{formatCurrency(newARR * (histChurn / 100))}) = Net New ARR: {formatCurrency(histNetAmt)}
-                      </p>
-                    )}
-                  </>
-                );
-              })()}
+              {/* Expected churn — read-only */}
+              {hasChurn && expectedAnnualChurn > 0 && (
+                <p className="text-xs italic text-red-500 px-3 mt-2">
+                  Expected annual churn: ~{formatCurrency(expectedAnnualChurn)} (based on your churn rate &times; starting ARR)
+                </p>
+              )}
             </div>
           </div>
         )
@@ -309,63 +288,34 @@ function TargetAllocation({
             </div>
           )}
 
-          {/* Churn (drag) row — manual */}
-          {hasChurn && (
-            <div className="mt-3">
-              <div className="flex items-center gap-3 py-1 px-3 rounded bg-red-50">
-                <span className="text-sm font-medium text-red-700 w-28">Churn (drag)</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-red-400 mr-0.5">-</span>
-                  <input
-                    type="number"
-                    value={churnPct || ''}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value) || 0;
-                      onAllocationsChange({ ...allocations, churn: Math.max(0, Math.min(100, val)) });
-                    }}
-                    placeholder="0"
-                    step={0.1}
-                    min={0}
-                    max={100}
-                    className="w-20 text-right rounded border border-red-300 py-1 px-2 text-sm text-red-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
-                  />
-                  <span className="text-xs text-red-400">%</span>
-                </div>
-                <span className="text-sm text-red-600 ml-auto w-28 text-right">
-                  -{formatCurrency(churnAmt)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Net New ARR row */}
+          {/* Total row */}
           <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-200 px-3">
-            <span className="text-sm font-semibold text-gray-700">Net New ARR</span>
+            <span className="text-sm font-semibold text-gray-700">Total</span>
             <div className="flex items-center gap-4">
               <span className={`text-sm font-semibold w-16 text-right ${
-                netValid ? 'text-green-700' : 'text-red-600'
+                grossValid ? 'text-green-700' : 'text-red-600'
               }`}>
-                {netPct.toFixed(1)}%
-                {netValid && <span className="ml-1">&#10003;</span>}
+                {grossPct.toFixed(1)}%
+                {grossValid && <span className="ml-1">&#10003;</span>}
               </span>
-              <span className={`text-sm font-bold w-28 text-right ${netValid ? 'text-gray-900' : 'text-red-600'}`}>
-                {formatCurrency(netAmt)}
+              <span className={`text-sm font-bold w-28 text-right ${grossValid ? 'text-gray-900' : 'text-red-600'}`}>
+                {formatCurrency(newARR)}
               </span>
             </div>
           </div>
 
-          {/* Running calculation */}
-          {(grossPct > 0 || churnPct > 0) && (
-            <p className="text-[10px] text-gray-400 px-3 mt-1">
-              Gross channels: {grossPct.toFixed(1)}% ({formatCurrency(grossAmt)}) &minus; Churn: -{churnPct.toFixed(1)}% (-{formatCurrency(churnAmt)}) = Net: {netPct.toFixed(1)}% ({formatCurrency(netAmt)})
+          {/* Expected churn — read-only */}
+          {hasChurn && expectedAnnualChurn > 0 && (
+            <p className="text-xs italic text-red-500 px-3 mt-2">
+              Expected annual churn: ~{formatCurrency(expectedAnnualChurn)} (based on your churn rate &times; starting ARR)
             </p>
           )}
 
           {/* Validation */}
-          {!netValid && (grossPct > 0 || churnPct > 0) && (
+          {!grossValid && grossPct > 0 && (
             <div className="mt-3 border border-red-200 rounded-lg p-2.5 bg-red-50">
               <p className="text-xs text-red-700 font-medium">
-                Net allocation {formatCurrency(netAmt)} does not match your {formatCurrency(newARR)} ARR gap &mdash; adjust channel allocations
+                Allocations must total 100% (currently {grossPct.toFixed(1)}%)
               </p>
             </div>
           )}
@@ -792,6 +742,7 @@ export default function Setup() {
         startingARR={plan.startingARR}
         filledQuarters={filledCount}
         historicalQuarters={historicalQuarters}
+        monthlyChurnRate={plan.targets.churn.monthlyChurnRate}
         onModeChange={(m) => dispatch({ type: 'SET_TARGET_ALLOCATION_MODE', payload: m })}
         onAllocationsChange={(a) => dispatch({ type: 'SET_TARGET_ALLOCATIONS', payload: a })}
       />
