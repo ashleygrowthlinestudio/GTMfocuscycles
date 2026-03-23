@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runTopDownModel, runModelWithBets, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import { runTopDownModel, runStatusQuoModel, runModelWithBets, applyChannelConfig } from '@/lib/engine';
 import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
 import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, RampConfig } from '@/lib/types';
@@ -55,25 +55,24 @@ export default function ExecutiveSummary() {
   }), [execGrossTarget, alloc]);
   const hasAllocations = useMemo(() => Object.values(channelTargets).some((v) => v > 0), [channelTargets]);
   const planModel = useMemo(() => {
-    if (hasAllocations) {
-      return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
-    }
-    const raw = runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
-    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
-  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.targetARR]);
+    if (!hasAllocations) return null;
+    return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline]);
 
-  // Status Quo model (historical trend)
+  // Status Quo model — runStatusQuoModel
   const flatSeasonality = useMemo(() => ({
     monthly: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [i + 1, 1.0])) as Record<number, number>,
   }), []);
-  const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
   const effectiveHistorical = useMemo(
     () => applyChannelConfig(plan.historical, cc, 'historical'),
     [plan.historical, cc],
   );
   const sqModel = useMemo(
-    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    () => runStatusQuoModel(
+      plan.historicalQuarters ?? [], cc, flatSeasonality, plan.startingARR, plan.existingPipeline,
+      plan.detailedActuals ?? [], plan.currentMonth ?? 1, plan.planningMode,
+    ),
+    [plan.historicalQuarters, cc, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.planningMode],
   );
 
   // With Bets model — same flat seasonality/no-ramp as SQ to isolate bet impact
@@ -83,9 +82,12 @@ export default function ExecutiveSummary() {
     [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
   );
 
+  // Effective planModel for display (falls back to sqModel when allocations aren't set)
+  const effectivePlanModel = planModel ?? sqModel;
+
   // Key numbers
   const sqARR = sqModel.endingARR;
-  const planARR = planModel.endingARR;
+  const planARR = planModel?.endingARR ?? plan.targetARR;
   const withBetsARR = withBetsModel.endingARR;
   const gapToClose = plan.targetARR - sqARR;
   const totalNewARRNeeded = plan.targetARR - plan.startingARR;
@@ -104,8 +106,8 @@ export default function ExecutiveSummary() {
   const targetPct = range > 0 ? ((plan.targetARR - plan.startingARR) / range) * 100 : 100;
 
   // NRR calculation from plan model
-  const totalAnnualExpansion = planModel.monthly.reduce((s, m) => s + m.expansionRevenue, 0);
-  const totalAnnualChurn = planModel.monthly.reduce((s, m) => s + Math.abs(m.churnRevenue), 0);
+  const totalAnnualExpansion = effectivePlanModel.monthly.reduce((s, m) => s + m.expansionRevenue, 0);
+  const totalAnnualChurn = effectivePlanModel.monthly.reduce((s, m) => s + Math.abs(m.churnRevenue), 0);
   const nrr = plan.startingARR > 0
     ? ((plan.startingARR + totalAnnualExpansion - totalAnnualChurn) / plan.startingARR) * 100
     : 100;
@@ -113,7 +115,7 @@ export default function ExecutiveSummary() {
   // Key actions: find top 3 gaps between plan and status quo
   const keyActions = useMemo(() => {
     const gaps: { label: string; current: number; target: number; delta: number; fmt: (v: number) => string }[] = [];
-    const pm = planModel.monthly;
+    const pm = effectivePlanModel.monthly;
     const sm = sqModel.monthly;
 
     const sumM = (arr: MonthlyResult[], fn: (m: MonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
@@ -284,9 +286,9 @@ export default function ExecutiveSummary() {
             </div>
 
             {goalsView === 'quarterly' ? (
-              <GoalsTableQuarterly quarterly={planModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
+              <GoalsTableQuarterly quarterly={effectivePlanModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
             ) : (
-              <GoalsTableMonthly monthly={planModel.monthly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
+              <GoalsTableMonthly monthly={effectivePlanModel.monthly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
             )}
           </div>
         </section>
@@ -307,7 +309,7 @@ export default function ExecutiveSummary() {
 
           {/* Full Status Quo metric table — quarterly, Plan vs SQ with deltas */}
           <div className="mt-4 overflow-x-auto">
-            <StatusQuoDeltaTable planQ={planModel.quarterly} sqQ={sqModel.quarterly} cc={cc} planTargets={effectiveTargets} sqTargets={effectiveHistorical} />
+            <StatusQuoDeltaTable planQ={effectivePlanModel.quarterly} sqQ={sqModel.quarterly} cc={cc} planTargets={effectiveTargets} sqTargets={effectiveHistorical} />
           </div>
         </section>
 
@@ -442,7 +444,7 @@ export default function ExecutiveSummary() {
 
           if (cc.hasInbound) {
             const sc = effectiveTargets.newBusiness.inbound.salesCycleMonths;
-            planModel.quarterly.forEach((q, qi) => {
+            effectivePlanModel.quarterly.forEach((q, qi) => {
               if (q.inboundClosedWon > 0) {
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
                 milestones.push({ quarter: quarters[qi], channel: 'Inbound', closedWon: q.inboundClosedWon, pipeline: q.inboundPipelineCreated, createByMonth: createBy, isPast: isInYear && createBy < cm });
@@ -451,7 +453,7 @@ export default function ExecutiveSummary() {
           }
           if (cc.hasOutbound) {
             const sc = effectiveTargets.newBusiness.outbound.salesCycleMonths;
-            planModel.quarterly.forEach((q, qi) => {
+            effectivePlanModel.quarterly.forEach((q, qi) => {
               if (q.outboundClosedWon > 0) {
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
                 milestones.push({ quarter: quarters[qi], channel: 'Outbound', closedWon: q.outboundClosedWon, pipeline: q.outboundPipelineCreated, createByMonth: createBy, isPast: isInYear && createBy < cm });
@@ -460,7 +462,7 @@ export default function ExecutiveSummary() {
           }
           if (cc.hasNewProduct) {
             const scIb = effectiveTargets.newProduct.inbound.salesCycleMonths;
-            planModel.quarterly.forEach((q, qi) => {
+            effectivePlanModel.quarterly.forEach((q, qi) => {
               const npCW = q.newProductInboundClosedWon;
               const npPipe = q.newProductInboundPipelineCreated;
               if (npCW > 0) {

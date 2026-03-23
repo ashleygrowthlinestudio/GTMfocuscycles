@@ -2,11 +2,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyChannelConfig, buildPipelineTimingMap } from '@/lib/engine';
-import type { PipelineTimingMap } from '@/lib/engine';
+import { runStatusQuoModel, applyChannelConfig, buildPipelineTimingMap } from '@/lib/engine';
+import type { PipelineTimingMap, ModelRun } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import { isQuarterFilled } from '@/components/shared/HistoricalDataSheet';
-import type { QuarterlyHistoricalData, SeasonalityWeights, RampConfig, RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
+import type { QuarterlyHistoricalData, SeasonalityWeights, RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
 
 // ── Build RevenueBreakdown from averaged historical quarters ──
 
@@ -287,10 +287,8 @@ export default function HistoricalBenchmarks() {
   const isInYear = plan.planningMode === 'in-year';
   const currentMonth = plan.currentMonth ?? 1;
 
-  // Build averaged breakdown from historical data
+  // Build averaged breakdown for display (rates table etc.)
   const breakdown = useMemo(() => buildHistoricalBreakdown(historicalQuarters), [historicalQuarters]);
-
-  // Apply channel config
   const effectiveBreakdown = useMemo(
     () => applyChannelConfig(breakdown, cc, 'historical'),
     [breakdown, cc],
@@ -299,13 +297,13 @@ export default function HistoricalBenchmarks() {
   // Seasonality: flat unless 8+ quarters
   const seasonality = useMemo(() => computeSeasonality(historicalQuarters), [historicalQuarters]);
 
-  // No ramp
-  const noRamp: RampConfig = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
-
-  // Run model
-  const model = useMemo(
-    () => runModel(effectiveBreakdown, seasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [effectiveBreakdown, seasonality, noRamp, plan.startingARR, plan.existingPipeline],
+  // Status Quo model — uses runStatusQuoModel (averaged rates, waterfall, NOT capped)
+  const model: ModelRun = useMemo(
+    () => runStatusQuoModel(
+      historicalQuarters, cc, seasonality, plan.startingARR, plan.existingPipeline,
+      plan.detailedActuals ?? [], plan.currentMonth ?? 1, plan.planningMode,
+    ),
+    [historicalQuarters, cc, seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.planningMode],
   );
 
   const projectedEndARR = model.endingARR;

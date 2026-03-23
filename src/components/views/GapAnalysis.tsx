@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runTopDownModel, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import { runTopDownModel, runStatusQuoModel, applyChannelConfig } from '@/lib/engine';
 import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import type { RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
@@ -208,7 +208,7 @@ function GapAnalysisInner() {
   const isInYear = plan.planningMode === 'in-year';
   const cm = plan.currentMonth ?? 1;
 
-  // Plan model (target projections) — allocation-driven when available
+  // Plan model (target projections) — runTopDownModel
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
@@ -227,28 +227,22 @@ function GapAnalysisInner() {
   }), [gapGrossTarget, alloc]);
   const gapHasAlloc = useMemo(() => Object.values(gapChannelTargets).some((v) => v > 0), [gapChannelTargets]);
   const planModel = useMemo(() => {
-    if (gapHasAlloc) {
-      return runTopDownModel(gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
-    }
-    const raw = runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline);
-    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
-  }, [gapHasAlloc, gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.ramp, plan.targetARR]);
+    if (!gapHasAlloc) return null;
+    return runTopDownModel(gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+  }, [gapHasAlloc, gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline]);
 
-  // Status Quo model (historical trend projection)
+  // Status Quo model — runStatusQuoModel (averaged historical rates)
   const flatSeasonality = useMemo(() => ({
     monthly: Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
     ) as Record<number, number>,
   }), []);
-  const noRamp = useMemo(() => ({ rampMonths: 1, startMonth: 1 as const }), []);
-
-  const effectiveHistorical = useMemo(
-    () => applyChannelConfig(plan.historical, cc, 'historical'),
-    [plan.historical, cc],
-  );
   const sqModel = useMemo(
-    () => runModel(effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
+    () => runStatusQuoModel(
+      plan.historicalQuarters ?? [], cc, flatSeasonality, plan.startingARR, plan.existingPipeline,
+      plan.detailedActuals ?? [], plan.currentMonth ?? 1, plan.planningMode,
+    ),
+    [plan.historicalQuarters, cc, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.planningMode],
   );
 
   // Build rows for Plan and Status Quo (separate closures for secondary/constant rows)
@@ -260,10 +254,14 @@ function GapAnalysisInner() {
     hasNewProduct: cc.hasNewProduct || cc.hasNewProductHistory,
   }), [cc]);
 
+  const effectiveHistorical = useMemo(
+    () => applyChannelConfig(plan.historical, cc, 'historical'),
+    [plan.historical, cc],
+  );
   const planRows = useMemo(() => buildRows(effectiveTargets, channelFlags), [effectiveTargets, channelFlags]);
   const sqRows = useMemo(() => buildRows(effectiveHistorical, channelFlags), [effectiveHistorical, channelFlags]);
 
-  const planARR = planModel.endingARR;
+  const planARR = planModel?.endingARR ?? plan.startingARR;
   const sqARR = sqModel.endingARR;
   const gapToClose = planARR - sqARR;
 
@@ -336,7 +334,7 @@ function GapAnalysisInner() {
         <div className="overflow-x-auto">
           {viewMode === 'quarterly' ? (
             <QuarterlyGapView
-              planQuarterly={planModel.quarterly}
+              planQuarterly={planModel?.quarterly ?? sqModel.quarterly}
               sqQuarterly={sqModel.quarterly}
               planRows={planRows}
               sqRows={sqRows}
@@ -346,7 +344,7 @@ function GapAnalysisInner() {
             />
           ) : (
             <MonthlyGapView
-              planMonthly={planModel.monthly}
+              planMonthly={planModel?.monthly ?? sqModel.monthly}
               sqMonthly={sqModel.monthly}
               planRows={planRows}
               sqRows={sqRows}

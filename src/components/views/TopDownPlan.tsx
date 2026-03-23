@@ -2,13 +2,11 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runTopDownModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsightsNormalized, getInsightsForMonth } from '@/lib/engine';
+import { runTopDownModel, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsightsNormalized, getInsightsForMonth } from '@/lib/engine';
 import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
-import type { RampConfig, PipelineDeadline } from '@/lib/types';
-
-const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
+import type { PipelineDeadline } from '@/lib/types';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -72,37 +70,27 @@ export default function TopDownPlan() {
     [channelTargets],
   );
 
-  // Top-down model when allocations are set; fall back to bottom-up + cap
-  const topDownModel = useMemo(
+  // ONLY runTopDownModel — no fallback bottom-up
+  const baseModel = useMemo(
     () => hasAllocations
       ? runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline)
       : null,
     [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
   );
 
-  // Fallback bottom-up model (used when allocations aren't set yet)
-  const bottomUpModel = useMemo(() => {
-    if (topDownModel) return null; // skip computation when top-down is active
-    const raw = (isInYear && hasActuals)
-      ? runModelWithActuals(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth)
-      : runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
-    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
-  }, [topDownModel, isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.targetARR]);
-
-  const baseModel = topDownModel ?? bottomUpModel!;
-
-  // Apply market insights if enabled — normalized so total ARR still equals targetARR
+  // Apply market insights if enabled
   const model = useMemo(() => {
+    if (!baseModel) return null;
     if (includeInsights && hasInsights) {
       return applyMarketInsightsNormalized(baseModel.monthly, enabledInsights, plan.startingARR, plan.targetARR, cm, plan.planningMode);
     }
     return baseModel;
   }, [baseModel, includeInsights, hasInsights, enabledInsights, plan.startingARR, plan.targetARR]);
 
-  // Pipeline deadlines
+  // Pipeline deadlines (only when model exists)
   const deadlines = useMemo(
-    () => calculatePipelineDeadlines(model.monthly, effectiveTargets, cm),
-    [model.monthly, effectiveTargets, cm],
+    () => model ? calculatePipelineDeadlines(model.monthly, effectiveTargets, cm) : [],
+    [model, effectiveTargets, cm],
   );
 
   const pipelineTimingMap = useMemo(
@@ -119,6 +107,22 @@ export default function TopDownPlan() {
     }
     return groups;
   }, [deadlines]);
+
+  // If no allocations set, show message instead of model output
+  if (!model) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <SummaryCard label="Starting ARR" value={formatCurrency(plan.startingARR)} color="gray" />
+          <SummaryCard label="Target ARR" value={formatCurrency(plan.targetARR)} color="blue" />
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-center">
+          <p className="text-sm font-medium text-amber-800">Set your target allocation in Setup to see projections</p>
+          <p className="text-xs text-amber-600 mt-1">Go to the Setup tab and configure your channel allocation percentages.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -172,8 +176,8 @@ export default function TopDownPlan() {
         planningMode={plan.planningMode}
         currentMonth={plan.currentMonth}
         detailedActuals={plan.detailedActuals}
-        planMonthly={isInYear && hasActuals ? baseModel.monthly : undefined}
-        planQuarterly={isInYear && hasActuals ? baseModel.quarterly : undefined}
+        planMonthly={isInYear && hasActuals && baseModel ? baseModel.monthly : undefined}
+        planQuarterly={isInYear && hasActuals && baseModel ? baseModel.quarterly : undefined}
         pipelineTimingMap={pipelineTimingMap}
         marketInsights={includeInsights ? enabledInsights : undefined}
         channelConfig={cc}

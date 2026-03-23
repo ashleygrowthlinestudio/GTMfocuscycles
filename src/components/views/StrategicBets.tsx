@@ -3,11 +3,9 @@
 import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import {
-  runModel,
   runTopDownModel,
-  runModelWithActuals,
+  runStatusQuoModel,
   runModelWithBets,
-  capModelAtTarget,
   applyChannelConfig,
   computeChannelMix,
   applyStrategicBets,
@@ -24,24 +22,22 @@ const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 export default function StrategicBets() {
   const { plan, dispatch } = useGTMPlan();
 
-  const isInYear = plan.planningMode === 'in-year';
-  const hasActuals = (plan.detailedActuals?.length ?? 0) > 0;
+  const cc = plan.channelConfig;
   const cm = plan.currentMonth ?? 1;
 
   // ── Channel-config-applied inputs ──
   const effectiveTargets = useMemo(
-    () => applyChannelConfig(plan.targets, plan.channelConfig, 'targets'),
-    [plan.targets, plan.channelConfig],
+    () => applyChannelConfig(plan.targets, cc, 'targets'),
+    [plan.targets, cc],
   );
 
   const effectiveHistorical = useMemo(
-    () => applyChannelConfig(plan.historical, plan.channelConfig, 'historical'),
-    [plan.historical, plan.channelConfig],
+    () => applyChannelConfig(plan.historical, cc, 'historical'),
+    [plan.historical, cc],
   );
 
-  // ── Target model — matches TopDownPlan (allocation-driven when available) ──
+  // ── Target model — runTopDownModel (same as Tab 1) ──
   const alloc = plan.targetAllocations;
-  const cc = plan.channelConfig;
   const expectedAnnualChurn = cc.hasChurn
     ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
     : 0;
@@ -64,33 +60,24 @@ export default function StrategicBets() {
   );
 
   const targetModel = useMemo(() => {
-    if (hasAllocations) {
-      return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
-    }
-    // Fallback: bottom-up + cap
-    const raw = (isInYear && hasActuals)
-      ? runModelWithActuals(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline, plan.detailedActuals!, cm)
-      : runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
-    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
-  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, isInYear, hasActuals, plan.detailedActuals, cm, plan.targetARR]);
+    if (!hasAllocations) return null;
+    return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline]);
 
-  // ── Status quo model — historical inputs, flat seasonality, no ramp ──
+  // ── Status quo model — runStatusQuoModel (same as Tab 2) ──
   const flatSeasonality = useMemo(() => ({
     monthly: Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
     ) as Record<number, number>,
   }), []);
 
-  const statusQuoModel = useMemo(() => {
-    if (isInYear && hasActuals) {
-      return runModelWithActuals(
-        effectiveHistorical, flatSeasonality, DEFAULT_RAMP,
-        plan.startingARR, plan.existingPipeline,
-        plan.detailedActuals!, cm,
-      );
-    }
-    return runModel(effectiveHistorical, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
-  }, [isInYear, hasActuals, effectiveHistorical, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm]);
+  const statusQuoModel = useMemo(
+    () => runStatusQuoModel(
+      plan.historicalQuarters ?? [], cc, flatSeasonality, plan.startingARR, plan.existingPipeline,
+      plan.detailedActuals ?? [], cm, plan.planningMode,
+    ),
+    [plan.historicalQuarters, cc, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm, plan.planningMode],
+  );
 
   // ── Channel mix from status quo ──
   const channelMix = useMemo(
@@ -106,7 +93,7 @@ export default function StrategicBets() {
       r.expansionRevenue + Math.abs(r.churnRevenue), 0);
   }, [statusQuoModel]);
 
-  // ── With-bets model — same baseline as SQ, but with bets applied per-month ──
+  // ── With-bets model — SQ with rates modified by bets ──
   const withBetsModel = useMemo(
     () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
     [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
@@ -207,10 +194,10 @@ export default function StrategicBets() {
         <BetComparisonTable
           statusQuoQuarterly={statusQuoModel.quarterly}
           withBetsQuarterly={withBetsModel.quarterly}
-          targetQuarterly={targetModel.quarterly}
+          targetQuarterly={targetModel?.quarterly ?? statusQuoModel.quarterly}
           statusQuoMonthly={statusQuoModel.monthly}
           withBetsMonthly={withBetsModel.monthly}
-          targetMonthly={targetModel.monthly}
+          targetMonthly={targetModel?.monthly ?? statusQuoModel.monthly}
           targetARR={plan.targetARR}
           startingARR={plan.startingARR}
           bets={plan.strategicBets}

@@ -17,7 +17,23 @@ import type {
   ChannelMix,
   PipelineDeadline,
   PipelineChannel,
+  QuarterlyHistoricalData,
+  PlanningMode,
 } from './types';
+
+// ── Null-safe helpers ─────────────────────────────────────────
+
+/** Safe division — returns 0 when denominator is 0, NaN, or not finite */
+function safeDivide(numerator: number, denominator: number): number {
+  if (!denominator || !Number.isFinite(denominator)) return 0;
+  const result = numerator / denominator;
+  return Number.isFinite(result) ? result : 0;
+}
+
+/** Coerce any non-finite number to 0 */
+function safeNum(v: number): number {
+  return Number.isFinite(v) ? v : 0;
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -776,46 +792,38 @@ export interface ChannelDollarTargets {
 
 /**
  * Top-down model: takes ANNUAL closed-won dollar targets per channel
- * (derived from target allocation %) and back-calculates the funnel
- * metrics (pipeline, HIS, deals) needed each month using the supplied
- * conversion rates and seasonality weights.
+ * (derived from target allocation %) and back-calculates funnel metrics.
  *
- * Unlike runModel (bottom-up), this does NOT apply a pipeline waterfall
- * delay — it shows what is NEEDED each month to hit the revenue target.
+ * Formula per channel per month:
+ *   closedWon = (channelAnnualTarget / 12) * seasonalityWeight
+ *   pipeline  = closedWon / winRate  (back-calculated)
+ *   hisVolume = pipeline / (hisToPipelineRate * acv)  (inbound only)
+ *   deals     = closedWon / acv
+ *
+ * Annual totals match channelAnnualTargets exactly.
  */
 export function runTopDownModel(
   channelTargets: ChannelDollarTargets,
   rates: RevenueBreakdown,
   seasonality: SeasonalityWeights,
   startingARR: number,
-  existingPipeline: ExistingPipeline,
+  _existingPipeline: ExistingPipeline,
 ): ModelRun {
   // Combine emerging into core channels for MonthlyResult shape
-  const annualIbCW = (channelTargets.inbound || 0) + (channelTargets.emergingInbound || 0);
-  const annualObCW = (channelTargets.outbound || 0) + (channelTargets.emergingOutbound || 0);
-  const annualExpRev = channelTargets.expansion || 0;
-  const annualNpCW = (channelTargets.newProduct || 0) + (channelTargets.emergingNewProduct || 0);
+  const annualIbCW = safeNum((channelTargets.inbound || 0) + (channelTargets.emergingInbound || 0));
+  const annualObCW = safeNum((channelTargets.outbound || 0) + (channelTargets.emergingOutbound || 0));
+  const annualExpRev = safeNum(channelTargets.expansion || 0);
+  const annualNpCW = safeNum((channelTargets.newProduct || 0) + (channelTargets.emergingNewProduct || 0));
 
-  // Seasonality normalisation — each month's share of the annual total
-  const weights: number[] = [];
-  let totalWeight = 0;
-  for (let i = 0; i < 12; i++) {
-    const w = getSeasonalityWeight((i + 1) as Month, seasonality);
-    weights.push(w);
-    totalWeight += w;
-  }
-  if (totalWeight <= 0) totalWeight = 12; // fallback — flat
-
-  // Safe rate accessors (avoid division by zero)
+  // Rate accessors
   const ibWR = rates.newBusiness.inbound.winRate || 0;
   const ibH2P = rates.newBusiness.inbound.hisToPipelineRate || 0;
-  const ibAcv = rates.newBusiness.inbound.acv || 1;
+  const ibAcv = rates.newBusiness.inbound.acv || 0;
   const obWR = rates.newBusiness.outbound.winRate || 0;
-  const obAcv = rates.newBusiness.outbound.acv || 1;
+  const obAcv = rates.newBusiness.outbound.acv || 0;
   const npIbWR = rates.newProduct.inbound.winRate || 0;
-  const npIbAcv = rates.newProduct.inbound.acv || 1;
+  const npIbAcv = rates.newProduct.inbound.acv || 0;
   const expWR = rates.expansion.winRate || 0;
-  const expAcv = rates.expansion.acv || 1;
   const churnRate = rates.churn.monthlyChurnRate || 0;
 
   const results: MonthlyResult[] = [];
@@ -823,34 +831,33 @@ export function runTopDownModel(
 
   for (let i = 0; i < 12; i++) {
     const month = (i + 1) as Month;
-    const monthFrac = weights[i] / totalWeight;
+    const sw = getSeasonalityWeight(month, seasonality);
 
-    // ── Closed Won targets for this month (pure top-down allocation) ──
-    const ibCW = annualIbCW * monthFrac;
-    const obCW = annualObCW * monthFrac;
-    const npIbCW = annualNpCW * monthFrac;
-    const expRev = annualExpRev * monthFrac;
+    // closedWon = (annualTarget / 12) * seasonalityWeight
+    const ibCW = safeNum((annualIbCW / 12) * sw);
+    const obCW = safeNum((annualObCW / 12) * sw);
+    const npIbCW = safeNum((annualNpCW / 12) * sw);
+    const expRev = safeNum((annualExpRev / 12) * sw);
 
-    // ── Back-calculate pipeline needed ──
-    const ibPipeline = ibWR > 0 ? ibCW / ibWR : 0;
-    const obPipeline = obWR > 0 ? obCW / obWR : 0;
-    const npIbPipeline = npIbWR > 0 ? npIbCW / npIbWR : 0;
-    const expPipeline = expWR > 0 ? expRev / expWR : 0;
+    // Back-calculate pipeline needed
+    const ibPipeline = safeDivide(ibCW, ibWR);
+    const obPipeline = safeDivide(obCW, obWR);
+    const npIbPipeline = safeDivide(npIbCW, npIbWR);
 
-    // ── Back-calculate HIS needed (inbound only) ──
-    const hisRequired = (ibH2P > 0 && ibAcv > 0) ? ibPipeline / (ibH2P * ibAcv) : 0;
+    // Back-calculate HIS needed (inbound only)
+    const hisRequired = safeDivide(ibPipeline, ibH2P * ibAcv);
 
-    // ── Deals ──
-    const ibDeals = ibAcv > 0 ? ibCW / ibAcv : 0;
-    const obDeals = obAcv > 0 ? obCW / obAcv : 0;
-    const npIbDeals = npIbAcv > 0 ? npIbCW / npIbAcv : 0;
+    // Deals
+    const ibDeals = safeDivide(ibCW, ibAcv);
+    const obDeals = safeDivide(obCW, obAcv);
+    const npIbDeals = safeDivide(npIbCW, npIbAcv);
 
-    // ── Churn ── (rate-based, not target-allocated)
-    const churnRevenue = -(currentARR * churnRate);
+    // Churn (rate-based, not target-allocated)
+    const churnRevenue = safeNum(-(currentARR * churnRate));
 
-    // ── Totals ──
-    const totalNewARR = ibCW + obCW + npIbCW + expRev + churnRevenue;
-    currentARR += totalNewARR;
+    // Totals
+    const totalNewARR = safeNum(ibCW + obCW + npIbCW + expRev + churnRevenue);
+    currentARR = safeNum(currentARR + totalNewARR);
 
     results.push({
       month,
@@ -879,6 +886,92 @@ export function runTopDownModel(
     endingARR: results[11]?.cumulativeARR ?? startingARR,
     totalNewARRAdded: results.reduce((s, m) => s + m.totalNewARR, 0),
   };
+}
+
+// ── Status Quo Model ─────────────────────────────────────────
+
+/**
+ * Status quo model: "if the team continues at exactly the historical
+ * average rate, what does the full year look like?"
+ *
+ * Step 1: Calculate averaged rates from historicalQuarters.
+ * Step 2: For each month 1-12:
+ *   - If in-year AND month < currentMonth AND actuals exist: use actuals.
+ *   - Else: pipeline waterfall (pipeline created → closes after salesCycle)
+ *     with pre-seeded pipeline for early months.
+ * Uses flat seasonality unless 8+ quarters of data exist.
+ * NOT capped at targetARR.
+ */
+export function runStatusQuoModel(
+  historicalQuarters: QuarterlyHistoricalData[],
+  channelConfig: ChannelConfig,
+  seasonality: SeasonalityWeights,
+  startingARR: number,
+  existingPipeline: ExistingPipeline,
+  detailedActuals: MonthlyActuals[],
+  currentMonth: Month,
+  planningMode: PlanningMode,
+): ModelRun {
+  // Step 1: Build averaged rates from historical quarters
+  const filled = (historicalQuarters || []).filter((q) => {
+    const total = (q.inboundClosedWon || 0) + (q.outboundClosedWon || 0) +
+      (q.expansionRevenue || 0) + (q.newProductClosedWon || 0);
+    return total > 0 || (q.churnRevenue || 0) > 0;
+  });
+
+  const avgField = (getter: (q: QuarterlyHistoricalData) => number): number => {
+    const vals = filled.map(getter).filter((v) => v > 0);
+    return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+  };
+
+  // Build RevenueBreakdown from averaged rates
+  const rates: RevenueBreakdown = {
+    newBusiness: {
+      inbound: {
+        hisMonthly: channelConfig.hasInbound || channelConfig.hasInboundHistory ? avgField((q) => q.inboundHIS) / 3 : 0,
+        hisToPipelineRate: avgField((q) => q.inboundHISToPipelineRate),
+        winRate: avgField((q) => q.inboundWinRate),
+        acv: avgField((q) => q.inboundACV),
+        salesCycleMonths: Math.min(Math.max(avgField((q) => q.inboundSalesCycle), 0), 18),
+      },
+      outbound: {
+        pipelineMonthly: channelConfig.hasOutbound || channelConfig.hasOutboundHistory ? avgField((q) => q.outboundQualifiedPipeline) / 3 : 0,
+        winRate: avgField((q) => q.outboundWinRate),
+        acv: avgField((q) => q.outboundACV),
+        salesCycleMonths: Math.min(Math.max(avgField((q) => q.outboundSalesCycle), 0), 18),
+      },
+    },
+    newProduct: {
+      inbound: {
+        hisMonthly: channelConfig.hasNewProduct || channelConfig.hasNewProductHistory ? avgField((q) => q.newProductHIS) / 3 : 0,
+        hisToPipelineRate: avgField((q) => q.newProductHISToPipelineRate),
+        winRate: avgField((q) => q.newProductWinRate),
+        acv: avgField((q) => q.newProductACV),
+        salesCycleMonths: Math.min(Math.max(avgField((q) => q.newProductSalesCycle), 0), 18),
+      },
+    },
+    expansion: {
+      pipelineMonthly: channelConfig.hasExpansion ? avgField((q) => q.expansionPipeline) / 3 : 0,
+      winRate: avgField((q) => q.expansionWinRate),
+      acv: avgField((q) => q.expansionACV),
+      salesCycleMonths: Math.min(Math.max(avgField((q) => q.expansionSalesCycle), 0), 18),
+    },
+    churn: {
+      monthlyChurnRate: channelConfig.hasChurn ? avgField((q) => q.churnRate) / 3 : 0,
+    },
+  };
+
+  // Step 2: Run the bottom-up model with these averaged rates
+  // Uses the existing calculateMonthlyRevenue which already has pre-seeding
+  const isInYear = planningMode === 'in-year';
+  const hasActuals = (detailedActuals?.length ?? 0) > 0;
+  const noRamp: RampConfig = { rampMonths: 1, startMonth: 1 };
+
+  if (isInYear && hasActuals) {
+    return runModelWithActuals(rates, seasonality, noRamp, startingARR, existingPipeline, detailedActuals, currentMonth);
+  }
+
+  return runModel(rates, seasonality, noRamp, startingARR, existingPipeline);
 }
 
 // ── Cap model at target ARR ──────────────────────────────────
