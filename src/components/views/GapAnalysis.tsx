@@ -65,7 +65,10 @@ function buildRows(
   }
 
   if (cc.hasExpansion) {
-    rows.push({ label: 'Expansion Rate', getMonthly: () => breakdown.expansion.expansionRate, getQuarterly: () => breakdown.expansion.expansionRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Pipeline $', getMonthly: () => breakdown.expansion.pipelineMonthly, getQuarterly: () => breakdown.expansion.pipelineMonthly, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Win Rate', getMonthly: () => breakdown.expansion.winRate, getQuarterly: () => breakdown.expansion.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion ACV', getMonthly: () => breakdown.expansion.acv, getQuarterly: () => breakdown.expansion.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Sales Cycle', getMonthly: () => breakdown.expansion.salesCycleMonths, getQuarterly: () => breakdown.expansion.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
     rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, metricType: 'currency', isPurple: true });
   }
 

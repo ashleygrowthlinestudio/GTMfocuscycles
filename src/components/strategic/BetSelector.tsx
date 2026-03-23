@@ -22,7 +22,7 @@ const METRIC_BET_OPTIONS: BetOption[] = [
   { metric: 'pipelineMonthly', category: 'newBusiness', channel: 'outbound', label: 'Outbound Pipeline/mo', description: 'Increase monthly outbound pipeline' },
   { metric: 'acv', category: 'newBusiness', channel: 'inbound', label: 'Inbound ACV', description: 'Increase average inbound deal size' },
   { metric: 'acv', category: 'newBusiness', channel: 'outbound', label: 'Outbound ACV', description: 'Increase average outbound deal size' },
-  { metric: 'expansionRate', category: 'expansion', label: 'Expansion Rate', description: 'Increase monthly net expansion rate' },
+  { metric: 'pipelineMonthly', category: 'expansion', label: 'Expansion Pipeline', description: 'Increase monthly expansion pipeline created' },
   { metric: 'monthlyChurnRate', category: 'churn', label: 'Churn Reduction', description: 'Reduce monthly churn rate' },
   { metric: 'winRate', category: 'newProduct', channel: 'inbound', label: 'New Product Win Rate', description: 'Improve new product win rate' },
   { metric: 'pipelineMonthly', category: 'newProduct', channel: 'outbound', label: 'New Product Pipeline', description: 'Increase new product outbound pipeline' },
@@ -47,7 +47,7 @@ const MIX_METRIC_TO_KEY: Record<string, keyof ChannelMix> = {
 };
 
 function getCurrentValue(historical: RevenueBreakdown, option: BetOption): number {
-  if (option.category === 'expansion') return historical.expansion.expansionRate;
+  if (option.category === 'expansion') return historical.expansion.pipelineMonthly;
   if (option.category === 'churn') return historical.churn.monthlyChurnRate;
 
   const cat = option.category === 'newBusiness' ? historical.newBusiness : historical.newProduct;

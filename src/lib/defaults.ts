@@ -104,7 +104,13 @@ export const DEFAULT_TARGETS: RevenueBreakdown = {
 
   expansion: {
 
-    expansionRate: 0.005, // 0.5% of ARR per month
+    pipelineMonthly: 200_000,
+
+    winRate: 0.40,
+
+    acv: 15_000,
+
+    salesCycleMonths: 2,
 
   },
 
@@ -180,7 +186,13 @@ export const DEFAULT_HISTORICAL: RevenueBreakdown = {
 
   expansion: {
 
-    expansionRate: 0.003,
+    pipelineMonthly: 100_000,
+
+    winRate: 0.30,
+
+    acv: 12_000,
+
+    salesCycleMonths: 2,
 
   },
 

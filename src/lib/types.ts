@@ -25,7 +25,10 @@ export interface RevenueBreakdown {
     outbound: OutboundFunnelInputs;
   };
   expansion: {
-    expansionRate: number;       // % of existing ARR that expands per month
+    pipelineMonthly: number;     // expansion pipeline created per month ($)
+    winRate: number;             // expansion win rate
+    acv: number;                 // average expansion deal value ($)
+    salesCycleMonths: number;    // months from pipeline to close
   };
   churn: {
     monthlyChurnRate: number;    // % of ARR lost per month
@@ -225,7 +228,11 @@ export interface QuarterlyHistoricalData {
   outboundNewCustomers: number;
   // Expansion
   expansionRevenue: number;
-  expansionRate: number;
+  expansionRate: number;  // legacy — kept for backward compat
+  expansionPipeline: number;
+  expansionWinRate: number;
+  expansionACV: number;
+  expansionSalesCycle: number;
   // Churn
   churnRevenue: number;
   churnRate: number;

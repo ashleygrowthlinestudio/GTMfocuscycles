@@ -276,7 +276,10 @@ function computeHistoricalFromQuarters(quarters: QuarterlyHistoricalData[]): Rev
       },
     },
     expansion: {
-      expansionRate: avg('expansionRate'),
+      pipelineMonthly: avg('expansionPipeline') / 3,
+      winRate: avg('expansionWinRate'),
+      acv: avg('expansionACV'),
+      salesCycleMonths: avg('expansionSalesCycle'),
     },
     churn: {
       monthlyChurnRate: avg('churnRate'),

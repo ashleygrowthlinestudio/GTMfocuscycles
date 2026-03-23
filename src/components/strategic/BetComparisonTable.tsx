@@ -132,11 +132,11 @@ function buildComparisonRows(targets?: RevenueBreakdown): TableRow[] {
   // ── Expansion ──
   if (targets) {
     rows.push({
-      label: 'Expansion Rate', getMonthly: () => targets.expansion.expansionRate, getQuarterly: () => targets.expansion.expansionRate, fmt: formatPercent, isSecondary: true, isConstant: true,
-      betMetrics: [{ metric: 'expansionRate', category: 'expansion' }],
+      label: 'Expansion Pipeline $', getMonthly: () => targets.expansion.pipelineMonthly, getQuarterly: () => targets.expansion.pipelineMonthly, fmt: formatCurrencyFull, isSecondary: true, isConstant: true,
+      betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }],
     });
   }
-  rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true, betMetrics: [{ metric: 'expansionRate', category: 'expansion' }] });
+  rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true, betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }] });
 
   // ── Churn ──
   if (targets) {
@@ -195,9 +195,8 @@ function getRowLabelForBet(bet: StrategicBet): string {
     salesCycleMonths: `${cat}${ch} Sales Cycle`,
     hisToPipelineRate: 'HIS → Pipeline Rate',
     hisMonthly: 'HIS Volume',
-    pipelineMonthly: 'OB Qual. Pipeline',
+    pipelineMonthly: bet.category === 'expansion' ? 'Expansion Pipeline' : 'OB Qual. Pipeline',
     acv: `${cat}${ch} ACV`,
-    expansionRate: 'Expansion Rate',
     monthlyChurnRate: 'Churn Rate',
   };
   return metricLabels[bet.metric] || bet.metric;

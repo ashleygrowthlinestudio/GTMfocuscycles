@@ -37,9 +37,6 @@ function buildHistoricalBreakdown(quarters: QuarterlyHistoricalData[]): RevenueB
   const npACV = avg((q) => q.newProductACV);
   const npSalesCycle = avg((q) => q.newProductSalesCycle);
 
-  // Expansion/churn: quarterly rate → estimate monthly rate
-  // expansionRate from historicals is quarterly; we need monthly
-  const avgExpRate = avg((q) => q.expansionRate);
   const avgChurnRate = avg((q) => q.churnRate);
 
   return {
@@ -73,7 +70,7 @@ function buildHistoricalBreakdown(quarters: QuarterlyHistoricalData[]): RevenueB
         salesCycleMonths: 0,
       },
     },
-    expansion: { expansionRate: avgExpRate },
+    expansion: { pipelineMonthly: avg((q) => q.expansionPipeline) / 3, winRate: avg((q) => q.expansionWinRate), acv: avg((q) => q.expansionACV), salesCycleMonths: avg((q) => q.expansionSalesCycle) },
     churn: { monthlyChurnRate: avgChurnRate },
   };
 }
@@ -205,7 +202,10 @@ function buildRows(breakdown: RevenueBreakdown, cc: { hasInbound: boolean; hasOu
   }
 
   if (cc.hasExpansion) {
-    rows.push({ label: 'Expansion Rate', getMonthly: () => breakdown.expansion.expansionRate, getQuarterly: () => breakdown.expansion.expansionRate, fmt: formatPercent, isSecondary: true, isConstant: true, trendGetter: (q) => q.expansionRate });
+    rows.push({ label: 'Expansion Pipeline $', getMonthly: () => breakdown.expansion.pipelineMonthly, getQuarterly: () => breakdown.expansion.pipelineMonthly, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, trendGetter: (q) => q.expansionPipeline });
+    rows.push({ label: 'Expansion Win Rate', getMonthly: () => breakdown.expansion.winRate, getQuarterly: () => breakdown.expansion.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, trendGetter: (q) => q.expansionWinRate });
+    rows.push({ label: 'Expansion ACV', getMonthly: () => breakdown.expansion.acv, getQuarterly: () => breakdown.expansion.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, trendGetter: (q) => q.expansionACV });
+    rows.push({ label: 'Expansion Sales Cycle', getMonthly: () => breakdown.expansion.salesCycleMonths, getQuarterly: () => breakdown.expansion.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, isSecondary: true, isConstant: true, trendGetter: (q) => q.expansionSalesCycle });
     rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true, trendGetter: (q) => q.expansionRevenue });
   }
 

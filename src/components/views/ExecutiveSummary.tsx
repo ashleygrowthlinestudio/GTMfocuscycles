@@ -607,13 +607,13 @@ export default function ExecutiveSummary() {
 
           // Expansion row
           if (hq.length > 0) {
-            const histExp = avg(hq.map((q) => q.expansionRate));
-            const planExp = effectiveTargets.expansion.expansionRate;
+            const histExp = avg(hq.map((q) => q.expansionWinRate));
+            const planExp = effectiveTargets.expansion.winRate;
             if (histExp > 0 || planExp > 0) {
               tables.push({
                 name: 'Expansion & Churn',
                 rows: [
-                  { metric: 'Expansion Rate', histVal: histExp, planVal: planExp, isPct: true, higherIsBetter: true },
+                  { metric: 'Expansion Win Rate', histVal: histExp, planVal: planExp, isPct: true, higherIsBetter: true },
                   { metric: 'Churn Rate', histVal: avg(hq.map((q) => q.churnRate)), planVal: effectiveTargets.churn.monthlyChurnRate, isPct: true, higherIsBetter: false },
                 ],
               });
@@ -761,7 +761,7 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
 
   // Expansion
   if (cc.hasExpansion) {
-    addConstant('Expansion Rate', formatPercent(targets.expansion.expansionRate));
+    addConstant('Expansion Win Rate', formatPercent(targets.expansion.winRate));
     addCurrency('Expansion Revenue', (q) => q.expansionRevenue);
   }
 
@@ -870,7 +870,7 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
   }
 
   if (cc.hasExpansion) {
-    addConstant('Expansion Rate', formatPercent(targets.expansion.expansionRate));
+    addConstant('Expansion Win Rate', formatPercent(targets.expansion.winRate));
     addCurrency('Expansion Revenue', (m) => m.expansionRevenue);
   }
 
@@ -980,7 +980,7 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
 
   // Expansion
   if (cc.hasExpansion) {
-    metrics.push({ label: 'Expansion Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(planTargets.expansion.expansionRate), sqConst: formatPercent(sqTargets.expansion.expansionRate) });
+    metrics.push({ label: 'Expansion Win Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(planTargets.expansion.winRate), sqConst: formatPercent(sqTargets.expansion.winRate) });
     metrics.push({ label: 'Expansion Revenue', getPlan: (q) => q.expansionRevenue, getSq: (q) => q.expansionRevenue, fmt: formatCurrencyFull });
   }
 

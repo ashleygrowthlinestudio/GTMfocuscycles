@@ -68,6 +68,7 @@ export function calculateMonthlyRevenue(
   const outboundCorePipeline: number[] = [];
   const inboundNewProdPipeline: number[] = [];
   const outboundNewProdPipeline: number[] = [];
+  const expansionPipeline: number[] = [];
 
   let currentARR = startingARR;
 
@@ -94,11 +95,16 @@ export function calculateMonthlyRevenue(
     const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
     outboundNewProdPipeline[i] = npObPipeline;
 
+    // Expansion pipeline creation
+    const expPipe = calcOutboundPipeline(inputs.expansion as OutboundFunnelInputs, seasonWeight, rampMult);
+    expansionPipeline[i] = expPipe;
+
     // ── Closed Won (waterfall from pipeline created N months ago) ──
     const ibCycleIdx = i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
     const obCycleIdx = i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
     const npIbCycleIdx = i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
     const npObCycleIdx = i - Math.round(inputs.newProduct.outbound.salesCycleMonths);
+    const expCycleIdx = i - Math.round(inputs.expansion.salesCycleMonths);
 
     let inboundClosedWon = 0;
     let outboundClosedWon = 0;
@@ -138,8 +144,8 @@ export function calculateMonthlyRevenue(
     const npInboundDeals = npInboundClosedWon / npIbAcv;
     const npOutboundDeals = npOutboundClosedWon / npObAcv;
 
-    // ── Expansion & Churn ──
-    const expansionRevenue = currentARR * inputs.expansion.expansionRate;
+    // ── Expansion (pipeline waterfall) & Churn ──
+    const expansionRevenue = expCycleIdx >= 0 ? expansionPipeline[expCycleIdx] * inputs.expansion.winRate : 0;
     const churnRevenue = -(currentARR * inputs.churn.monthlyChurnRate);
 
     // ── Total new ARR this month ──
@@ -291,7 +297,7 @@ export function applyStrategicBetsForMonth(
           modified.newProduct.outbound.pipelineMonthly *= scale;
           break;
         case 'expansionMixPct':
-          modified.expansion.expansionRate *= scale;
+          modified.expansion.pipelineMonthly *= scale;
           break;
         case 'churnMixPct':
           modified.churn.monthlyChurnRate *= scale;
@@ -300,8 +306,8 @@ export function applyStrategicBetsForMonth(
       continue;
     }
 
-    if (bet.category === 'expansion' && bet.metric === 'expansionRate') {
-      modified.expansion.expansionRate = effectiveValue;
+    if (bet.category === 'expansion') {
+      (modified.expansion as unknown as Record<string, number>)[bet.metric] = effectiveValue;
     } else if (bet.category === 'churn' && bet.metric === 'monthlyChurnRate') {
       modified.churn.monthlyChurnRate = effectiveValue;
     } else if (bet.category === 'newBusiness' || bet.category === 'newProduct') {
@@ -355,6 +361,7 @@ export function runModelWithBets(
   const outboundCorePipeline: number[] = [];
   const inboundNewProdPipeline: number[] = [];
   const outboundNewProdPipeline: number[] = [];
+  const expansionPipelineBets: number[] = [];
 
   // Pre-compute per-month inputs
   const monthlyInputs: RevenueBreakdown[] = [];
@@ -387,11 +394,16 @@ export function runModelWithBets(
     const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
     outboundNewProdPipeline[i] = npObPipeline;
 
+    // Expansion pipeline
+    const expPipeBets = calcOutboundPipeline(inputs.expansion as OutboundFunnelInputs, seasonWeight, rampMult);
+    expansionPipelineBets[i] = expPipeBets;
+
     // Closed Won uses the closing month's win rate but pipeline from creation month
     const ibCycleIdx = i - Math.round(inputs.newBusiness.inbound.salesCycleMonths);
     const obCycleIdx = i - Math.round(inputs.newBusiness.outbound.salesCycleMonths);
     const npIbCycleIdx = i - Math.round(inputs.newProduct.inbound.salesCycleMonths);
     const npObCycleIdx = i - Math.round(inputs.newProduct.outbound.salesCycleMonths);
+    const expCycleIdxBets = i - Math.round(inputs.expansion.salesCycleMonths);
 
     let inboundClosedWon = 0;
     let outboundClosedWon = 0;
@@ -428,7 +440,7 @@ export function runModelWithBets(
     const npInboundDeals = npInboundClosedWon / npIbAcv;
     const npOutboundDeals = npOutboundClosedWon / npObAcv;
 
-    const expansionRevenue = currentARR * inputs.expansion.expansionRate;
+    const expansionRevenue = expCycleIdxBets >= 0 ? expansionPipelineBets[expCycleIdxBets] * inputs.expansion.winRate : 0;
     const churnRevenue = -(currentARR * inputs.churn.monthlyChurnRate);
 
     const totalNewARR =
@@ -692,7 +704,7 @@ export function applyChannelConfig(
 
   // Expansion/churn toggles apply in both modes
   if (!config.hasExpansion) {
-    modified.expansion.expansionRate = 0;
+    modified.expansion = { pipelineMonthly: 0, winRate: 0, acv: 0, salesCycleMonths: 0 };
   }
   if (!config.hasChurn) {
     modified.churn.monthlyChurnRate = 0;
@@ -838,6 +850,7 @@ export function runModelWithActuals(
   const obCorePipe: number[] = [];
   const ibNewProdPipe: number[] = [];
   const obNewProdPipe: number[] = [];
+  const expPipe: number[] = [];
 
   const results: MonthlyResult[] = [];
   let currentARR = startingARR;
@@ -955,8 +968,11 @@ export function runModelWithActuals(
         npOutboundClosedWon += existingPipeline.outboundNewProduct * existingPipeline.winRate;
       }
 
-      // Expansion & churn based on REBASED currentARR
-      const expansionRevenue = currentARR * recal.expansion.expansionRate;
+      // Expansion pipeline
+      const expPipeActuals = calcOutboundPipeline(recal.expansion as OutboundFunnelInputs, seasonWeight, rampMult);
+      expPipe[i] = expPipeActuals;
+      const expCycleIdxActuals = i - Math.round(recal.expansion.salesCycleMonths);
+      const expansionRevenue = expCycleIdxActuals >= 0 ? expPipe[expCycleIdxActuals] * recal.expansion.winRate : 0;
       const churnRevenue = -(currentARR * recal.churn.monthlyChurnRate);
 
       const ibAcv = recal.newBusiness.inbound.acv || 1;

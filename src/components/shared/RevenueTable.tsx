@@ -226,7 +226,10 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
   // ── Expansion group (rate first, then revenue, then customers) ──
   if (targets) {
     rows.push(
-      { label: 'Expansion Rate', getMonthly: () => targets.expansion.expansionRate, getQuarterly: () => targets.expansion.expansionRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'Expansion Pipeline $', getMonthly: () => targets.expansion.pipelineMonthly, getQuarterly: () => targets.expansion.pipelineMonthly, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
+      { label: 'Expansion Win Rate', getMonthly: () => targets.expansion.winRate, getQuarterly: () => targets.expansion.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'Expansion ACV', getMonthly: () => targets.expansion.acv, getQuarterly: () => targets.expansion.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
+      { label: 'Expansion Sales Cycle', getMonthly: () => targets.expansion.salesCycleMonths, getQuarterly: () => targets.expansion.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
     );
   }
   rows.push(
