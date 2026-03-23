@@ -80,6 +80,13 @@ export default function ExecutiveSummary() {
   const betsPct = range > 0 ? ((withBetsARR - plan.startingARR) / range) * 100 : 0;
   const targetPct = range > 0 ? ((plan.targetARR - plan.startingARR) / range) * 100 : 100;
 
+  // NRR calculation from plan model
+  const totalAnnualExpansion = planModel.monthly.reduce((s, m) => s + m.expansionRevenue, 0);
+  const totalAnnualChurn = planModel.monthly.reduce((s, m) => s + Math.abs(m.churnRevenue), 0);
+  const nrr = plan.startingARR > 0
+    ? ((plan.startingARR + totalAnnualExpansion - totalAnnualChurn) / plan.startingARR) * 100
+    : 100;
+
   // Key actions: find top 3 gaps between plan and status quo
   const keyActions = useMemo(() => {
     const gaps: { label: string; current: number; target: number; delta: number; fmt: (v: number) => string }[] = [];
@@ -171,7 +178,7 @@ export default function ExecutiveSummary() {
             Plan period: {plan.planYear} — {modeText}
           </p>
 
-          <div className="grid grid-cols-3 gap-6 mt-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
             <div className="text-center p-6 rounded-xl bg-gray-50 border border-gray-200">
               <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Starting ARR</div>
               <div className="text-3xl font-bold text-gray-900 mt-2">{formatCurrency(plan.startingARR)}</div>
@@ -189,6 +196,28 @@ export default function ExecutiveSummary() {
               </div>
               <div className={`text-xs mt-1 ${gapToClose > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {gapToClose > 0 ? 'short of target' : 'above target'}
+              </div>
+            </div>
+            <div className={`text-center p-6 rounded-xl border ${
+              nrr > 100 ? 'bg-green-50 border-green-200' : nrr < 100 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className={`text-xs font-medium uppercase tracking-wide ${
+                nrr > 100 ? 'text-green-600' : nrr < 100 ? 'text-red-600' : 'text-gray-500'
+              }`}>
+                Implied NRR
+              </div>
+              <div className={`text-3xl font-bold mt-2 ${
+                nrr > 100 ? 'text-green-900' : nrr < 100 ? 'text-red-900' : 'text-gray-900'
+              }`}>
+                {Math.round(nrr)}%
+              </div>
+              <div className={`text-xs mt-1 ${
+                nrr > 100 ? 'text-green-600' : nrr < 100 ? 'text-red-600' : 'text-gray-500'
+              }`}>
+                {nrr > 100 ? 'Existing base is expanding' : nrr < 100 ? 'Existing base is contracting' : 'Existing base is stable'}
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1">
+                Net Revenue Retention — what existing ARR does without new logos
               </div>
             </div>
           </div>
