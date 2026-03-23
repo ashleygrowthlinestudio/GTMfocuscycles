@@ -1,36 +1,34 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { QuarterlyResult, MonthlyResult, StrategicBet, RevenueBreakdown, BetMetric } from '@/lib/types';
-import { getBetValueForMonth, getBetRampPct } from '@/lib/engine';
+import type { StrategicBet, BetMetric } from '@/lib/types';
+import type { EngineMonthlyResult, EngineQuarterlyResult } from '@/lib/engine';
 import { formatCurrencyFull, formatNumber, formatMonthName, formatPercent } from '@/lib/format';
 
 interface BetComparisonTableProps {
-  statusQuoQuarterly: QuarterlyResult[];
-  withBetsQuarterly: QuarterlyResult[];
-  targetQuarterly: QuarterlyResult[];
-  statusQuoMonthly: MonthlyResult[];
-  withBetsMonthly: MonthlyResult[];
-  targetMonthly: MonthlyResult[];
+  statusQuoQuarterly: EngineQuarterlyResult[];
+  withBetsQuarterly: EngineQuarterlyResult[];
+  targetQuarterly: EngineQuarterlyResult[] | null;
+  statusQuoMonthly: EngineMonthlyResult[];
+  withBetsMonthly: EngineMonthlyResult[];
+  targetMonthly: EngineMonthlyResult[] | null;
   targetARR: number;
   startingARR: number;
   bets?: StrategicBet[];
-  sqTargets?: RevenueBreakdown;
-  betsTargets?: RevenueBreakdown;
-  planTargets?: RevenueBreakdown;
+  gapClosedPct: number;
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// ── Row definition (mirrors RevenueTable) ──────────────────────
+// ── Row definition ──────────────────────────────────────────────
 
 type TableRow = {
   label: string;
   monthlyLabel?: string;
-  getMonthly: (m: MonthlyResult) => number;
-  getQuarterly: (q: QuarterlyResult) => number;
+  getMonthly: (m: EngineMonthlyResult) => number;
+  getQuarterly: (q: EngineQuarterlyResult) => number;
   fmt: (v: number) => string;
   isSecondary?: boolean;
   isChurn?: boolean;
@@ -38,7 +36,6 @@ type TableRow = {
   isClosedWon?: boolean;
   isPurple?: boolean;
   isConstant?: boolean;
-  // Which bet metrics affect this row (for highlighting)
   betMetrics?: { metric: BetMetric; channel?: 'inbound' | 'outbound'; category?: string }[];
 };
 
@@ -47,39 +44,33 @@ const n = (v: number | undefined | null): number => (v != null && isFinite(v) ? 
 
 const fmtSalesCycle = (v: number): string => `${n(v).toFixed(1)} mo`;
 
-function buildComparisonRows(targets?: RevenueBreakdown): TableRow[] {
+function buildComparisonRows(): TableRow[] {
   const rows: TableRow[] = [];
 
   // ── Inbound ──
   rows.push({
-    label: 'HIS Volume', getMonthly: (m) => n(m.hisRequired), getQuarterly: (q) => n(q.hisRequired), fmt: formatNumber,
+    label: 'HIS Volume', getMonthly: (m) => n(m.inboundHIS), getQuarterly: (q) => n(q.inboundHIS), fmt: formatNumber,
     betMetrics: [{ metric: 'hisMonthly', channel: 'inbound', category: 'newBusiness' }],
   });
-  if (targets) {
-    const ib = targets.newBusiness.inbound;
-    rows.push({
-      label: 'HIS → Pipeline Rate', getMonthly: () => n(ib.hisToPipelineRate), getQuarterly: () => n(ib.hisToPipelineRate), fmt: formatPercent, isSecondary: true, isConstant: true,
-      betMetrics: [{ metric: 'hisToPipelineRate', channel: 'inbound', category: 'newBusiness' }],
-    });
-  }
+  rows.push({
+    label: 'HIS \u2192 Pipeline Rate', getMonthly: (m) => n(m.inboundHisToPipelineRate), getQuarterly: (q) => n(q.months[0].inboundHisToPipelineRate), fmt: formatPercent, isSecondary: true, isConstant: true,
+    betMetrics: [{ metric: 'hisToPipelineRate', channel: 'inbound', category: 'newBusiness' }],
+  });
   rows.push({
     label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qual. Pipeline', getMonthly: (m) => n(m.inboundPipelineCreated), getQuarterly: (q) => n(q.inboundPipelineCreated), fmt: formatCurrencyFull,
     betMetrics: [{ metric: 'hisMonthly', channel: 'inbound', category: 'newBusiness' }, { metric: 'hisToPipelineRate', channel: 'inbound', category: 'newBusiness' }],
   });
-  if (targets) {
-    const ib = targets.newBusiness.inbound;
-    rows.push(
-      { label: 'IB Win Rate', getMonthly: () => n(ib.winRate), getQuarterly: () => n(ib.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }] },
-      { label: 'IB ACV', getMonthly: () => n(ib.acv), getQuarterly: () => n(ib.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'inbound', category: 'newBusiness' }] },
-      { label: 'IB Sales Cycle', getMonthly: () => n(ib.salesCycleMonths), getQuarterly: () => n(ib.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'inbound', category: 'newBusiness' }] },
-    );
-  }
+  rows.push(
+    { label: 'IB Win Rate', getMonthly: (m) => n(m.inboundWinRate), getQuarterly: (q) => n(q.months[0].inboundWinRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }] },
+    { label: 'IB ACV', getMonthly: (m) => n(m.inboundACV), getQuarterly: (q) => n(q.months[0].inboundACV), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'inbound', category: 'newBusiness' }] },
+    { label: 'IB Sales Cycle', getMonthly: (m) => n(m.inboundSalesCycle), getQuarterly: (q) => n(q.months[0].inboundSalesCycle), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'inbound', category: 'newBusiness' }] },
+  );
   rows.push({
     label: 'Inbound Closed Won', getMonthly: (m) => n(m.inboundClosedWon), getQuarterly: (q) => n(q.inboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true,
     betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newBusiness' }, { metric: 'acv', channel: 'inbound', category: 'newBusiness' }],
   });
   rows.push({
-    label: 'Inbound New Customers', getMonthly: (m) => n(m.inboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.inboundDeals), 0), fmt: formatNumber,
+    label: 'Inbound New Customers', getMonthly: (m) => n(m.inboundDeals), getQuarterly: (q) => n(q.inboundDeals), fmt: formatNumber,
   });
 
   // ── Outbound ──
@@ -87,56 +78,37 @@ function buildComparisonRows(targets?: RevenueBreakdown): TableRow[] {
     label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qual. Pipeline', getMonthly: (m) => n(m.outboundPipelineCreated), getQuarterly: (q) => n(q.outboundPipelineCreated), fmt: formatCurrencyFull,
     betMetrics: [{ metric: 'pipelineMonthly', channel: 'outbound', category: 'newBusiness' }],
   });
-  if (targets) {
-    const ob = targets.newBusiness.outbound;
-    rows.push(
-      { label: 'OB Win Rate', getMonthly: () => n(ob.winRate), getQuarterly: () => n(ob.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }] },
-      { label: 'OB ACV', getMonthly: () => n(ob.acv), getQuarterly: () => n(ob.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'outbound', category: 'newBusiness' }] },
-      { label: 'OB Sales Cycle', getMonthly: () => n(ob.salesCycleMonths), getQuarterly: () => n(ob.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'outbound', category: 'newBusiness' }] },
-    );
-  }
+  rows.push(
+    { label: 'OB Win Rate', getMonthly: (m) => n(m.outboundWinRate), getQuarterly: (q) => n(q.months[0].outboundWinRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }] },
+    { label: 'OB ACV', getMonthly: (m) => n(m.outboundACV), getQuarterly: (q) => n(q.months[0].outboundACV), fmt: formatCurrencyFull, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'acv', channel: 'outbound', category: 'newBusiness' }] },
+    { label: 'OB Sales Cycle', getMonthly: (m) => n(m.outboundSalesCycle), getQuarterly: (q) => n(q.months[0].outboundSalesCycle), fmt: fmtSalesCycle, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'salesCycleMonths', channel: 'outbound', category: 'newBusiness' }] },
+  );
   rows.push({
     label: 'Outbound Closed Won', getMonthly: (m) => n(m.outboundClosedWon), getQuarterly: (q) => n(q.outboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true,
     betMetrics: [{ metric: 'winRate', channel: 'outbound', category: 'newBusiness' }, { metric: 'acv', channel: 'outbound', category: 'newBusiness' }],
   });
   rows.push({
-    label: 'Outbound New Customers', getMonthly: (m) => n(m.outboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.outboundDeals), 0), fmt: formatNumber,
+    label: 'Outbound New Customers', getMonthly: (m) => n(m.outboundDeals), getQuarterly: (q) => n(q.outboundDeals), fmt: formatNumber,
   });
 
   // ── NP Inbound ──
-  rows.push({ label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS', getMonthly: (m) => n(m.newProductHisRequired), getQuarterly: (q) => n(q.newProductHisRequired), fmt: formatNumber });
-  if (targets) {
-    const npIb = targets.newProduct.inbound;
-    rows.push({ label: 'NP IB HIS → Pipeline Rate', getMonthly: () => n(npIb.hisToPipelineRate), getQuarterly: () => n(npIb.hisToPipelineRate), fmt: formatPercent, isSecondary: true, isConstant: true });
-  }
-  rows.push({ label: 'NP Inbound Qual. Pipeline $', monthlyLabel: 'NP IB Pipeline', getMonthly: (m) => n(m.newProductInboundPipelineCreated), getQuarterly: (q) => n(q.newProductInboundPipelineCreated), fmt: formatCurrencyFull });
-  if (targets) {
-    const npIb = targets.newProduct.inbound;
-    rows.push(
-      { label: 'NP IB Win Rate', getMonthly: () => n(npIb.winRate), getQuarterly: () => n(npIb.winRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newProduct' }] },
-      { label: 'NP IB ACV', getMonthly: () => n(npIb.acv), getQuarterly: () => n(npIb.acv), fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'NP IB Sales Cycle', getMonthly: () => n(npIb.salesCycleMonths), getQuarterly: () => n(npIb.salesCycleMonths), fmt: fmtSalesCycle, isSecondary: true, isConstant: true },
-    );
-  }
-  rows.push({ label: 'NP Inbound Won', getMonthly: (m) => n(m.newProductInboundClosedWon), getQuarterly: (q) => n(q.newProductInboundClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
-  rows.push({ label: 'NP Inbound Customers', getMonthly: (m) => n(m.newProductInboundDeals), getQuarterly: (q) => q.months.reduce((s, m) => s + n(m.newProductInboundDeals), 0), fmt: formatNumber });
+  rows.push({ label: 'NP Inbound Qual. Pipeline $', monthlyLabel: 'NP IB Pipeline', getMonthly: (m) => n(m.newProductPipelineCreated), getQuarterly: (q) => n(q.newProductPipelineCreated), fmt: formatCurrencyFull });
+  rows.push(
+    { label: 'NP IB Win Rate', getMonthly: (m) => n(m.newProductWinRate), getQuarterly: (q) => n(q.months[0].newProductWinRate), fmt: formatPercent, isSecondary: true, isConstant: true, betMetrics: [{ metric: 'winRate', channel: 'inbound', category: 'newProduct' }] },
+    { label: 'NP IB ACV', getMonthly: (m) => n(m.newProductACV), getQuarterly: (q) => n(q.months[0].newProductACV), fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
+    { label: 'NP IB Sales Cycle', getMonthly: (m) => n(m.newProductSalesCycle), getQuarterly: (q) => n(q.months[0].newProductSalesCycle), fmt: fmtSalesCycle, isSecondary: true, isConstant: true },
+  );
+  rows.push({ label: 'NP Inbound Won', getMonthly: (m) => n(m.newProductClosedWon), getQuarterly: (q) => n(q.newProductClosedWon), fmt: formatCurrencyFull, isClosedWon: true });
+  rows.push({ label: 'NP Inbound Customers', getMonthly: (m) => n(m.newProductDeals), getQuarterly: (q) => n(q.newProductDeals), fmt: formatNumber });
 
   // ── Expansion ──
-  if (targets) {
-    rows.push({
-      label: 'Expansion Pipeline $', getMonthly: () => n(targets.expansion?.pipelineMonthly), getQuarterly: () => n(targets.expansion?.pipelineMonthly), fmt: formatCurrencyFull, isSecondary: true, isConstant: true,
-      betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }],
-    });
-  }
+  rows.push({
+    label: 'Expansion Pipeline $', getMonthly: (m) => n(m.expansionPipelineCreated), getQuarterly: (q) => n(q.expansionPipelineCreated), fmt: formatCurrencyFull, isSecondary: true,
+    betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }],
+  });
   rows.push({ label: 'Expansion Revenue', getMonthly: (m) => n(m.expansionRevenue), getQuarterly: (q) => n(q.expansionRevenue), fmt: formatCurrencyFull, isPurple: true, betMetrics: [{ metric: 'pipelineMonthly', category: 'expansion' }] });
 
   // ── Churn ──
-  if (targets) {
-    rows.push({
-      label: 'Churn Rate', getMonthly: () => n(targets.churn?.monthlyChurnRate), getQuarterly: () => n(targets.churn?.monthlyChurnRate), fmt: formatPercent, isSecondary: true, isConstant: true, isChurn: true,
-      betMetrics: [{ metric: 'monthlyChurnRate', category: 'churn' }],
-    });
-  }
   rows.push({ label: 'Churn Revenue', getMonthly: (m) => n(m.churnRevenue), getQuarterly: (q) => n(q.churnRevenue), fmt: formatCurrencyFull, isChurn: true, isPurple: true, betMetrics: [{ metric: 'monthlyChurnRate', category: 'churn' }] });
 
   // ── Totals ──
@@ -152,11 +124,8 @@ function getBetsForRow(row: TableRow, enabledBets: StrategicBet[]): StrategicBet
   return enabledBets.filter((bet) =>
     row.betMetrics!.some((bm) => {
       if (bm.metric !== bet.metric) return false;
-      // Check category match
       if (bm.category && bm.category !== bet.category) return false;
-      // Check channel match
       if (bm.channel && bet.channel && bm.channel !== bet.channel) return false;
-      // If bet has no channel, it applies to both
       if (bm.channel && !bet.channel) return true;
       return true;
     }),
@@ -175,10 +144,8 @@ function betTooltip(bet: StrategicBet): string {
   const from = formatBetValue(bet.metric, bet.currentValue);
   const to = formatBetValue(bet.metric, bet.improvedValue);
   const startLabel = MONTH_LABELS[(bet.startMonth ?? 1) - 1];
-  return `${bet.name}: ${from} → ${to} (starting ${startLabel}, ${bet.rampMonths ?? 3} months to full impact)`;
+  return `${bet.name}: ${from} \u2192 ${to} (starting ${startLabel}, ${bet.rampMonths ?? 3} months to full impact)`;
 }
-
-// ── Row label mapping for bet pills ─────────────────────────
 
 function getRowLabelForBet(bet: StrategicBet): string {
   const ch = bet.channel === 'inbound' ? 'IB' : bet.channel === 'outbound' ? 'OB' : '';
@@ -186,7 +153,7 @@ function getRowLabelForBet(bet: StrategicBet): string {
   const metricLabels: Record<string, string> = {
     winRate: `${cat}${ch} Win Rate`,
     salesCycleMonths: `${cat}${ch} Sales Cycle`,
-    hisToPipelineRate: 'HIS → Pipeline Rate',
+    hisToPipelineRate: 'HIS \u2192 Pipeline Rate',
     hisMonthly: 'HIS Volume',
     pipelineMonthly: bet.category === 'expansion' ? 'Expansion Pipeline' : 'OB Qual. Pipeline',
     acv: `${cat}${ch} ACV`,
@@ -212,6 +179,13 @@ function cellLabelClass(row: TableRow): string {
   return 'py-1.5 px-3 text-gray-700';
 }
 
+// ── Safe display helper ─────────────────────────────────────
+
+function safeDisplay(val: number | undefined | null, fmt: (v: number) => string): string {
+  if (val === undefined || val === null || isNaN(val)) return '\u2014';
+  return fmt(val);
+}
+
 // ── Main Component ──────────────────────────────────────────
 
 export default function BetComparisonTable({
@@ -224,9 +198,7 @@ export default function BetComparisonTable({
   targetARR,
   startingARR,
   bets,
-  sqTargets,
-  betsTargets,
-  planTargets,
+  gapClosedPct,
 }: BetComparisonTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
 
@@ -234,17 +206,11 @@ export default function BetComparisonTable({
   const betsEndARR = n(withBetsMonthly[11]?.cumulativeARR);
 
   const gapClosed = betsEndARR - sqEndARR;
-  const totalGap = targetARR - sqEndARR;
-  const percentClosed = totalGap > 0 ? Math.min(100, Math.max(0, (gapClosed / totalGap) * 100)) : (betsEndARR >= targetARR ? 100 : 0);
+  const percentClosed = gapClosedPct;
 
   const enabledBets = (bets || []).filter((b) => b.enabled);
 
-  // Build 3 separate row arrays so secondary rows show per-scenario rates
-  const sqRows = useMemo(() => buildComparisonRows(sqTargets), [sqTargets]);
-  const betsRows = useMemo(() => buildComparisonRows(betsTargets), [betsTargets]);
-  const targetRows = useMemo(() => buildComparisonRows(planTargets), [planTargets]);
-  // Primary rows (for labels, betMetrics matching, and non-secondary getters)
-  const rows = targetRows;
+  const rows = useMemo(() => buildComparisonRows(), []);
 
   return (
     <div className="space-y-4">
@@ -273,7 +239,7 @@ export default function BetComparisonTable({
         </div>
       </div>
 
-      {/* Progress bar — amber = SQ baseline, blue = incremental bet impact on top */}
+      {/* Progress bar */}
       <div className="bg-gray-100 rounded-full h-3 relative overflow-hidden">
         <div className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all" style={{ width: `${targetARR > 0 ? Math.min(100, (betsEndARR / targetARR) * 100) : 0}%` }} />
         <div className="absolute inset-y-0 left-0 bg-amber-400 rounded-full transition-all" style={{ width: `${targetARR > 0 ? Math.min(100, (sqEndARR / targetARR) * 100) : 0}%` }} />
@@ -289,8 +255,7 @@ export default function BetComparisonTable({
         <div className="flex flex-wrap gap-2">
           {enabledBets.map((bet) => {
             const rowLabel = getRowLabelForBet(bet);
-            const impact = gapClosed;
-            const perBet = enabledBets.length > 0 ? impact / enabledBets.length : 0;
+            const perBet = enabledBets.length > 0 ? gapClosed / enabledBets.length : 0;
             return (
               <div key={bet.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-yellow-50 border border-yellow-300 rounded-full text-xs" title={betTooltip(bet)}>
                 <span className="text-yellow-600">&#127919;</span>
@@ -303,50 +268,6 @@ export default function BetComparisonTable({
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Ramp Timelines per bet */}
-      {enabledBets.length > 0 && (
-        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
-          <div className="p-3 border-b border-gray-100 bg-gray-50">
-            <h3 className="text-sm font-semibold text-gray-700">Bet Ramp Timelines</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left py-2 px-3 font-medium text-gray-500 w-36">Bet</th>
-                  {MONTH_LABELS.map((m) => (
-                    <th key={m} className="text-center py-2 px-1 font-medium text-gray-500 min-w-[52px]">{m}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {enabledBets.map((bet) => (
-                  <tr key={bet.id} className="border-b border-gray-100">
-                    <td className="py-2 px-3 text-gray-700 font-medium">{bet.name}</td>
-                    {Array.from({ length: 12 }, (_, i) => {
-                      const month = i + 1;
-                      const rampPct = getBetRampPct(bet, month);
-                      const val = getBetValueForMonth(bet, month);
-                      const rampDisplay = Math.round(rampPct * 100);
-                      const bgColor = rampPct === 0 ? 'bg-gray-100' : rampPct >= 1 ? 'bg-blue-100' : 'bg-blue-50';
-                      const textColor = rampPct === 0 ? 'text-gray-400' : rampPct >= 1 ? 'text-blue-700' : 'text-blue-600';
-                      return (
-                        <td key={month} className={`py-2 px-1 text-center ${bgColor} ${textColor}`} title={`${MONTH_LABELS[i]}: ${formatBetValue(bet.metric, val)} (${rampDisplay}% ramped)`}>
-                          <div className="text-[10px] font-medium">{formatBetValue(bet.metric, val)}</div>
-                          <div className="h-1 mt-0.5 rounded-full bg-gray-200 overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${rampDisplay}%` }} />
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
@@ -372,9 +293,6 @@ export default function BetComparisonTable({
               betsQ={withBetsQuarterly}
               target={targetQuarterly}
               rows={rows}
-              sqRows={sqRows}
-              betsRows={betsRows}
-              targetRows={targetRows}
               enabledBets={enabledBets}
               startingARR={startingARR}
             />
@@ -384,9 +302,6 @@ export default function BetComparisonTable({
               betsM={withBetsMonthly}
               target={targetMonthly}
               rows={rows}
-              sqRows={sqRows}
-              betsRows={betsRows}
-              targetRows={targetRows}
               enabledBets={enabledBets}
               startingARR={startingARR}
             />
@@ -400,10 +315,10 @@ export default function BetComparisonTable({
 // ── Full Quarterly Comparison ───────────────────────────────
 
 function FullQuarterlyComparison({
-  sq, betsQ, target, rows, sqRows, betsRows, targetRows, enabledBets, startingARR,
+  sq, betsQ, target, rows, enabledBets, startingARR,
 }: {
-  sq: QuarterlyResult[]; betsQ: QuarterlyResult[]; target: QuarterlyResult[];
-  rows: TableRow[]; sqRows: TableRow[]; betsRows: TableRow[]; targetRows: TableRow[];
+  sq: EngineQuarterlyResult[]; betsQ: EngineQuarterlyResult[]; target: EngineQuarterlyResult[] | null;
+  rows: TableRow[];
   enabledBets: StrategicBet[]; startingARR: number;
 }) {
   return (
@@ -430,10 +345,6 @@ function FullQuarterlyComparison({
         {rows.map((row, idx) => {
           const matchingBets = getBetsForRow(row, enabledBets);
           const hasBet = matchingBets.length > 0;
-          // Use per-scenario row for secondary/constant values
-          const sqRow = sqRows[idx] ?? row;
-          const betsRow = betsRows[idx] ?? row;
-          const tgtRow = targetRows[idx] ?? row;
 
           return (
             <tr key={`${row.label}-${idx}`} className={`border-b border-gray-100 ${rowBgClass(row, hasBet)}`}>
@@ -444,15 +355,15 @@ function FullQuarterlyComparison({
                 {row.label}
               </td>
               {[0, 1, 2, 3].map((qi) => {
-                const sqVal = sqRow.getQuarterly(sq[qi]);
-                const betsVal = betsRow.getQuarterly(betsQ[qi]);
-                const targetVal = tgtRow.getQuarterly(target[qi]);
+                const sqVal = n(row.getQuarterly(sq[qi]));
+                const betsVal = n(row.getQuarterly(betsQ[qi]));
+                const targetVal = target ? n(row.getQuarterly(target[qi])) : NaN;
                 const betsChanged = hasBet && sqVal !== betsVal;
                 return (
                   <React.Fragment key={qi}>
                     <td className="py-1 px-1 text-right text-amber-700 border-l border-gray-100">{row.fmt(sqVal)}</td>
                     <td className={`py-1 px-1 text-right text-blue-700 ${betsChanged ? 'font-semibold bg-blue-50' : hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
-                    <td className="py-1 px-1 text-right text-gray-500">{row.fmt(targetVal)}</td>
+                    <td className="py-1 px-1 text-right text-gray-500">{safeDisplay(targetVal, row.fmt)}</td>
                   </React.Fragment>
                 );
               })}
@@ -464,9 +375,9 @@ function FullQuarterlyComparison({
           <td className="py-1.5 px-3 text-gray-700 sticky left-0 bg-blue-50 z-10">Ending ARR</td>
           {[0, 1, 2, 3].map((qi) => (
             <React.Fragment key={qi}>
-              <td className="py-1.5 px-1 text-right text-amber-700 border-l border-gray-100">{formatCurrencyFull(sq[qi]?.endingARR ?? 0)}</td>
-              <td className="py-1.5 px-1 text-right text-blue-700 font-medium">{formatCurrencyFull(betsQ[qi]?.endingARR ?? 0)}</td>
-              <td className="py-1.5 px-1 text-right text-gray-500">{formatCurrencyFull(target[qi]?.endingARR ?? 0)}</td>
+              <td className="py-1.5 px-1 text-right text-amber-700 border-l border-gray-100">{formatCurrencyFull(n(sq[qi]?.endingARR))}</td>
+              <td className="py-1.5 px-1 text-right text-blue-700 font-medium">{formatCurrencyFull(n(betsQ[qi]?.endingARR))}</td>
+              <td className="py-1.5 px-1 text-right text-gray-500">{target ? formatCurrencyFull(n(target[qi]?.endingARR)) : '\u2014'}</td>
             </React.Fragment>
           ))}
         </tr>
@@ -478,10 +389,10 @@ function FullQuarterlyComparison({
 // ── Full Monthly Comparison ─────────────────────────────────
 
 function FullMonthlyComparison({
-  sq, betsM, target, rows, sqRows, betsRows, targetRows, enabledBets, startingARR,
+  sq, betsM, target, rows, enabledBets, startingARR,
 }: {
-  sq: MonthlyResult[]; betsM: MonthlyResult[]; target: MonthlyResult[];
-  rows: TableRow[]; sqRows: TableRow[]; betsRows: TableRow[]; targetRows: TableRow[];
+  sq: EngineMonthlyResult[]; betsM: EngineMonthlyResult[]; target: EngineMonthlyResult[] | null;
+  rows: TableRow[];
   enabledBets: StrategicBet[]; startingARR: number;
 }) {
   return (
@@ -508,9 +419,6 @@ function FullMonthlyComparison({
         {rows.map((row, idx) => {
           const matchingBets = getBetsForRow(row, enabledBets);
           const hasBet = matchingBets.length > 0;
-          const sqRow = sqRows[idx] ?? row;
-          const betsRow = betsRows[idx] ?? row;
-          const tgtRow = targetRows[idx] ?? row;
 
           return (
             <tr key={`${row.monthlyLabel || row.label}-${idx}`} className={`border-b border-gray-100 ${rowBgClass(row, hasBet)}`}>
@@ -521,15 +429,15 @@ function FullMonthlyComparison({
                 {row.monthlyLabel || row.label}
               </td>
               {Array.from({ length: 12 }, (_, i) => {
-                const sqVal = sqRow.getMonthly(sq[i]);
-                const betsVal = betsRow.getMonthly(betsM[i]);
-                const targetVal = tgtRow.getMonthly(target[i]);
+                const sqVal = n(row.getMonthly(sq[i]));
+                const betsVal = n(row.getMonthly(betsM[i]));
+                const targetVal = target ? n(row.getMonthly(target[i])) : NaN;
                 const betsChanged = hasBet && sqVal !== betsVal;
                 return (
                   <React.Fragment key={i}>
                     <td className="py-1 px-0.5 text-right text-amber-700 border-l border-gray-100 text-[10px]">{row.fmt(sqVal)}</td>
                     <td className={`py-1 px-0.5 text-right text-blue-700 text-[10px] ${betsChanged ? 'font-semibold bg-blue-50' : hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
-                    <td className="py-1 px-0.5 text-right text-gray-500 text-[10px]">{row.fmt(targetVal)}</td>
+                    <td className="py-1 px-0.5 text-right text-gray-500 text-[10px]">{safeDisplay(targetVal, row.fmt)}</td>
                   </React.Fragment>
                 );
               })}
@@ -541,9 +449,9 @@ function FullMonthlyComparison({
           <td className="py-1.5 px-3 text-gray-700 sticky left-0 bg-blue-50 z-10">Ending ARR</td>
           {Array.from({ length: 12 }, (_, i) => (
             <React.Fragment key={i}>
-              <td className="py-1 px-0.5 text-right text-amber-700 border-l border-gray-100 text-[10px]">{formatCurrencyFull(sq[i]?.cumulativeARR ?? 0)}</td>
-              <td className="py-1 px-0.5 text-right text-blue-700 font-medium text-[10px]">{formatCurrencyFull(betsM[i]?.cumulativeARR ?? 0)}</td>
-              <td className="py-1 px-0.5 text-right text-gray-500 text-[10px]">{formatCurrencyFull(target[i]?.cumulativeARR ?? 0)}</td>
+              <td className="py-1 px-0.5 text-right text-amber-700 border-l border-gray-100 text-[10px]">{formatCurrencyFull(n(sq[i]?.cumulativeARR))}</td>
+              <td className="py-1 px-0.5 text-right text-blue-700 font-medium text-[10px]">{formatCurrencyFull(n(betsM[i]?.cumulativeARR))}</td>
+              <td className="py-1 px-0.5 text-right text-gray-500 text-[10px]">{target ? formatCurrencyFull(n(target[i]?.cumulativeARR)) : '\u2014'}</td>
             </React.Fragment>
           ))}
         </tr>

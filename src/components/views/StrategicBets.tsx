@@ -4,20 +4,38 @@ import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import {
   runTopDownModel,
+  calcHistoricalAverages,
   runStatusQuoModel,
-  runModelWithBets,
-  applyChannelConfig,
-  computeChannelMix,
-  applyStrategicBets,
+  applyBetsToRates,
 } from '@/lib/engine';
-import type { ChannelDollarTargets } from '@/lib/engine';
+import type { ActualMonth } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent } from '@/lib/format';
 import BetSelector from '@/components/strategic/BetSelector';
 import BetCard from '@/components/strategic/BetCard';
 import BetComparisonTable from '@/components/strategic/BetComparisonTable';
-import type { RampConfig } from '@/lib/types';
+import type { MonthlyActuals } from '@/lib/types';
 
-const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
+function toActualMonth(a: MonthlyActuals): ActualMonth {
+  return {
+    month: a.month,
+    inboundClosedWon: a.inboundClosedWon,
+    outboundClosedWon: a.outboundClosedWon,
+    expansionRevenue: a.expansionRevenue,
+    newProductClosedWon: a.newProductInboundClosedWon,
+    churnRevenue: a.churnRevenue,
+    totalNewARR: a.totalNewARR,
+    cumulativeARR: a.cumulativeARR,
+    inboundPipelineCreated: a.inboundPipelineCreated,
+    outboundPipelineCreated: a.outboundPipelineCreated,
+    expansionPipelineCreated: 0,
+    newProductPipelineCreated: 0,
+    inboundHIS: a.hisVolume,
+    inboundDeals: 0,
+    outboundDeals: 0,
+    expansionDeals: 0,
+    newProductDeals: 0,
+  };
+}
 
 export default function StrategicBets() {
   const { plan, dispatch } = useGTMPlan();
@@ -25,89 +43,129 @@ export default function StrategicBets() {
   const cc = plan.channelConfig;
   const cm = plan.currentMonth ?? 1;
 
-  // ── Channel-config-applied inputs ──
-  const effectiveTargets = useMemo(
-    () => applyChannelConfig(plan.targets, cc, 'targets'),
-    [plan.targets, cc],
-  );
-
-  const effectiveHistorical = useMemo(
-    () => applyChannelConfig(plan.historical, cc, 'historical'),
-    [plan.historical, cc],
-  );
-
-  // ── Target model — runTopDownModel (same as Tab 1) ──
+  // ── Target model (same as TopDownPlan.tsx) ──────────────────
   const alloc = plan.targetAllocations;
-  const expectedAnnualChurn = cc.hasChurn
-    ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
-    : 0;
-  const newARR = plan.targetARR - plan.startingARR;
-  const grossTarget = newARR + expectedAnnualChurn;
+  const churnAnnual = plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12;
+  const grossTarget = (plan.targetARR - plan.startingARR) + churnAnnual;
 
-  const channelTargets: ChannelDollarTargets = useMemo(() => ({
-    inbound: grossTarget * ((alloc?.inbound || 0) / 100),
-    outbound: grossTarget * ((alloc?.outbound || 0) / 100),
-    expansion: grossTarget * ((alloc?.expansion || 0) / 100),
-    newProduct: grossTarget * ((alloc?.newProduct || 0) / 100),
-    emergingInbound: grossTarget * ((alloc?.emergingInbound || 0) / 100),
-    emergingOutbound: grossTarget * ((alloc?.emergingOutbound || 0) / 100),
-    emergingNewProduct: grossTarget * ((alloc?.emergingNewProduct || 0) / 100),
-  }), [grossTarget, alloc]);
+  const inboundAnnual = ((alloc?.inbound || 0) / 100) * grossTarget;
+  const outboundAnnual = ((alloc?.outbound || 0) / 100) * grossTarget;
+  const expansionAnnual = ((alloc?.expansion || 0) / 100) * grossTarget;
+  const newProductAnnual = ((alloc?.newProduct || 0) / 100) * grossTarget;
 
-  const hasAllocations = useMemo(
-    () => Object.values(channelTargets).some((v) => v > 0),
-    [channelTargets],
-  );
+  const hasAllocations = (inboundAnnual + outboundAnnual + expansionAnnual + newProductAnnual) > 0;
+
+  const targets = plan.targets;
 
   const targetModel = useMemo(() => {
     if (!hasAllocations) return null;
-    return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
-  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline]);
+    return runTopDownModel({
+      inboundAnnual,
+      outboundAnnual,
+      expansionAnnual,
+      newProductAnnual,
+      churnAnnual,
+      rates: {
+        inboundWinRate: targets.newBusiness.inbound.winRate,
+        inboundACV: targets.newBusiness.inbound.acv,
+        inboundSalesCycle: targets.newBusiness.inbound.salesCycleMonths,
+        inboundHisToPipelineRate: targets.newBusiness.inbound.hisToPipelineRate,
+        outboundWinRate: targets.newBusiness.outbound.winRate,
+        outboundACV: targets.newBusiness.outbound.acv,
+        outboundSalesCycle: targets.newBusiness.outbound.salesCycleMonths,
+        expansionWinRate: targets.expansion.winRate,
+        expansionACV: targets.expansion.acv,
+        expansionSalesCycle: targets.expansion.salesCycleMonths,
+        newProductWinRate: targets.newProduct.inbound.winRate,
+        newProductACV: targets.newProduct.inbound.acv,
+        newProductSalesCycle: targets.newProduct.inbound.salesCycleMonths,
+      },
+      startingARR: plan.startingARR,
+    });
+  }, [
+    hasAllocations, inboundAnnual, outboundAnnual, expansionAnnual, newProductAnnual,
+    churnAnnual, targets, plan.startingARR,
+  ]);
 
-  // ── Status quo model — runStatusQuoModel (same as Tab 2) ──
-  const flatSeasonality = useMemo(() => ({
-    monthly: Object.fromEntries(
-      Array.from({ length: 12 }, (_, i) => [i + 1, 1.0]),
-    ) as Record<number, number>,
-  }), []);
+  // ── Status quo model (same as HistoricalBenchmarks.tsx) ─────
+  const historicalQuarters = plan.historicalQuarters ?? [];
+
+  const avgs = useMemo(
+    () => calcHistoricalAverages(historicalQuarters),
+    [historicalQuarters],
+  );
+
+  const actuals = useMemo(
+    () => (plan.detailedActuals || []).map(toActualMonth),
+    [plan.detailedActuals],
+  );
 
   const statusQuoModel = useMemo(
-    () => runStatusQuoModel(
-      plan.historicalQuarters ?? [], cc, flatSeasonality, plan.startingARR, plan.existingPipeline,
-      plan.detailedActuals ?? [], cm, plan.planningMode,
-    ),
-    [plan.historicalQuarters, cc, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm, plan.planningMode],
+    () => runStatusQuoModel({
+      ...avgs,
+      monthlyChurnRate: avgs.monthlyChurnRate || plan.targets.churn.monthlyChurnRate,
+      startingARR: plan.startingARR,
+      actuals,
+      currentMonth: cm,
+      channelConfig: cc,
+    }),
+    [avgs, plan.startingARR, actuals, cm, cc, plan.targets.churn.monthlyChurnRate],
   );
+
+  // ── With-bets model — SQ with rates modified by applyBetsToRates ──
+  const withBetsModel = useMemo(() => {
+    const modifiedRates = applyBetsToRates(avgs as unknown as Record<string, number>, plan.strategicBets, cm);
+    return runStatusQuoModel({
+      avgMonthlyInboundPipeline: modifiedRates.avgMonthlyInboundPipeline ?? avgs.avgMonthlyInboundPipeline,
+      avgInboundWinRate: modifiedRates.avgInboundWinRate ?? avgs.avgInboundWinRate,
+      avgInboundACV: modifiedRates.avgInboundACV ?? avgs.avgInboundACV,
+      avgInboundSalesCycle: modifiedRates.avgInboundSalesCycle ?? avgs.avgInboundSalesCycle,
+      avgMonthlyHIS: modifiedRates.avgMonthlyHIS ?? avgs.avgMonthlyHIS,
+      avgInboundHisToPipelineRate: modifiedRates.avgInboundHisToPipelineRate ?? avgs.avgInboundHisToPipelineRate,
+      avgMonthlyOutboundPipeline: modifiedRates.avgMonthlyOutboundPipeline ?? avgs.avgMonthlyOutboundPipeline,
+      avgOutboundWinRate: modifiedRates.avgOutboundWinRate ?? avgs.avgOutboundWinRate,
+      avgOutboundACV: modifiedRates.avgOutboundACV ?? avgs.avgOutboundACV,
+      avgOutboundSalesCycle: modifiedRates.avgOutboundSalesCycle ?? avgs.avgOutboundSalesCycle,
+      avgExpansionPipeline: modifiedRates.avgExpansionPipeline ?? avgs.avgExpansionPipeline,
+      avgExpansionWinRate: modifiedRates.avgExpansionWinRate ?? avgs.avgExpansionWinRate,
+      avgExpansionACV: modifiedRates.avgExpansionACV ?? avgs.avgExpansionACV,
+      avgExpansionSalesCycle: modifiedRates.avgExpansionSalesCycle ?? avgs.avgExpansionSalesCycle,
+      avgNewProductPipeline: modifiedRates.avgNewProductPipeline ?? avgs.avgNewProductPipeline,
+      avgNewProductWinRate: modifiedRates.avgNewProductWinRate ?? avgs.avgNewProductWinRate,
+      avgNewProductACV: modifiedRates.avgNewProductACV ?? avgs.avgNewProductACV,
+      avgNewProductSalesCycle: modifiedRates.avgNewProductSalesCycle ?? avgs.avgNewProductSalesCycle,
+      monthlyChurnRate: (modifiedRates.monthlyChurnRate ?? avgs.monthlyChurnRate) || plan.targets.churn.monthlyChurnRate,
+      startingARR: plan.startingARR,
+      actuals,
+      currentMonth: cm,
+      channelConfig: cc,
+    });
+  }, [avgs, plan.strategicBets, cm, plan.startingARR, actuals, cc, plan.targets.churn.monthlyChurnRate]);
+
+  // ── Gap closed % ──────────────────────────────────────────
+  const sqEndARR = statusQuoModel.endingARR;
+  const betsEndARR = withBetsModel.endingARR;
+  const targetEndARR = targetModel?.endingARR ?? plan.targetARR;
+
+  const gapClosed = sqEndARR === targetEndARR
+    ? 100
+    : Math.min(100, Math.max(0,
+        (betsEndARR - sqEndARR) / (targetEndARR - sqEndARR) * 100,
+      ));
 
   // ── Channel mix from status quo ──
-  const channelMix = useMemo(
-    () => computeChannelMix(statusQuoModel),
-    [statusQuoModel],
-  );
-
   const totalRevenue = useMemo(() => {
     const m = statusQuoModel.monthly;
     return m.reduce((s, r) =>
       s + r.inboundClosedWon + r.outboundClosedWon +
-      r.newProductInboundClosedWon +
+      r.newProductClosedWon +
       r.expansionRevenue + Math.abs(r.churnRevenue), 0);
   }, [statusQuoModel]);
-
-  // ── With-bets model — SQ with rates modified by bets ──
-  const withBetsModel = useMemo(
-    () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
-  );
-
-  // Compute bet-modified targets for secondary row display (fully ramped)
-  const betsTargets = useMemo(
-    () => applyStrategicBets(effectiveHistorical, plan.strategicBets),
-    [effectiveHistorical, plan.strategicBets],
-  );
 
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
 
   // ── Target allocation context ──
+  const newARR = plan.targetARR - plan.startingARR;
   const showAllocContext = (plan.targetAllocationMode === 'manual' || plan.targetAllocationMode === 'historical') && newARR > 0;
 
   return (
@@ -184,7 +242,9 @@ export default function StrategicBets() {
       <BetSelector
         existingBets={plan.strategicBets}
         historical={plan.historical}
-        channelMix={channelMix}
+        channelMix={{
+          inbound: 0, outbound: 0, newProductInbound: 0, expansion: 0, churn: 0,
+        }}
         totalRevenue={totalRevenue}
         onAdd={(bet) => dispatch({ type: 'ADD_BET', payload: bet })}
       />
@@ -194,16 +254,14 @@ export default function StrategicBets() {
         <BetComparisonTable
           statusQuoQuarterly={statusQuoModel.quarterly}
           withBetsQuarterly={withBetsModel.quarterly}
-          targetQuarterly={targetModel?.quarterly ?? statusQuoModel.quarterly}
+          targetQuarterly={targetModel?.quarterly ?? null}
           statusQuoMonthly={statusQuoModel.monthly}
           withBetsMonthly={withBetsModel.monthly}
-          targetMonthly={targetModel?.monthly ?? statusQuoModel.monthly}
+          targetMonthly={targetModel?.monthly ?? null}
           targetARR={plan.targetARR}
           startingARR={plan.startingARR}
           bets={plan.strategicBets}
-          sqTargets={effectiveHistorical}
-          betsTargets={betsTargets}
-          planTargets={effectiveTargets}
+          gapClosedPct={gapClosed}
         />
       )}
     </div>
