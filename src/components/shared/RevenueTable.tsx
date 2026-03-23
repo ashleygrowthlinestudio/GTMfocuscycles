@@ -77,9 +77,9 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
       )}
       <div className="overflow-x-auto">
         {viewMode === 'quarterly' ? (
-          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} />
+          <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} channelConfig={channelConfig} />
         ) : (
-          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} bets={bets} marketInsights={marketInsights} />
+          <MonthlyView monthly={monthly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planMonthly={planMonthly} pipelineTimingMap={pipelineTimingMap} bets={bets} marketInsights={marketInsights} channelConfig={channelConfig} />
         )}
       </div>
     </div>
@@ -101,129 +101,133 @@ type TableRow = {
   isPurple?: boolean;    // purple highlight for expansion/churn revenue
   isConstant?: boolean;  // don't sum for total/annual column
   isEmerging?: boolean;  // emerging channel — show badge
+  showGrowth?: boolean;  // show QoQ/MoM growth sub-row
+  isEmergingHeader?: boolean; // amber section header for emerging channel
+  isEmergingNote?: boolean;   // amber italic note row
+  isWalkToMath?: boolean;     // walk-to-math read-only row
+  walkToText?: string;        // text for walk-to-math row
 };
 
-function buildRows(targets?: RevenueBreakdown): TableRow[] {
+function buildRows(targets?: RevenueBreakdown, cc?: ChannelConfig): TableRow[] {
   const rows: TableRow[] = [];
+  const isEmergingIB = cc?.hasEmergingInbound ?? false;
+  const isEmergingOB = cc?.hasEmergingOutbound ?? false;
+  const isEmergingNP = cc?.hasEmergingNewProduct ?? false;
+
+  // Helper: build walk-to-math text for a funnel
+  function walkTo(pipeline: number, winRate: number): string {
+    return `${formatCurrencyFull(pipeline)} pipeline x ${formatPercent(winRate)} win rate = ${formatCurrencyFull(pipeline * winRate)} closed won (est.)`;
+  }
+  // Dummy row for headers/notes — values are always 0
+  const ZERO = () => 0;
 
   // ── Inbound channel group (funnel order: top → bottom) ──
-  // 1. HIS Volume (top of funnel)
+  if (isEmergingIB) {
+    rows.push({ label: '✦ Inbound — Emerging (Target Assumptions)', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingHeader: true, isConstant: true });
+  }
   rows.push(
-    { label: 'HIS Volume', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber },
+    { label: 'HIS Volume', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber, isEmerging: isEmergingIB },
   );
-  // 2. HIS → Pipeline Rate (secondary)
   if (targets) {
     const ib = targets.newBusiness.inbound;
     rows.push(
-      { label: 'HIS → Pipeline Rate', getMonthly: () => ib.hisToPipelineRate, getQuarterly: () => ib.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true },
+      { label: 'HIS → Pipeline Rate', getMonthly: () => ib.hisToPipelineRate, getQuarterly: () => ib.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingIB },
     );
   }
-  // 3. Qualified Pipeline Created $
   rows.push(
-    { label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qualified Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull },
+    { label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qualified Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull, showGrowth: true, isEmerging: isEmergingIB },
   );
-  // 4-6. Win Rate, ACV, Sales Cycle (secondary)
   if (targets) {
     const ib = targets.newBusiness.inbound;
     rows.push(
-      { label: 'Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
-      { label: 'ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingIB },
+      { label: 'ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, isEmerging: isEmergingIB },
+      { label: 'Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, isEmerging: isEmergingIB },
     );
+    if (isEmergingIB) {
+      rows.push({ label: '~ Target assumptions — no historical baseline', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingNote: true, isConstant: true });
+      rows.push({ label: 'Walk-to Math', walkToText: walkTo(ib.hisMonthly * ib.hisToPipelineRate * ib.acv, ib.winRate), getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isWalkToMath: true, isConstant: true });
+    }
   }
-  // 7. Inbound Closed Won $
   rows.push(
-    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
+    { label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true, showGrowth: true, isEmerging: isEmergingIB },
   );
-  // 8. Inbound New Customers
   rows.push(
-    {
-      label: 'Inbound New Customers',
-      getMonthly: (m) => m.inboundDeals,
-      getQuarterly: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0),
-      fmt: formatNumber,
-    },
+    { label: 'Inbound New Customers', getMonthly: (m) => m.inboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingIB },
   );
 
-  // ── Outbound channel group (funnel order) ──
-  // 1. Qualified Pipeline Created $
+  // ── Outbound channel group ──
+  if (isEmergingOB) {
+    rows.push({ label: '✦ Outbound — Emerging (Target Assumptions)', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingHeader: true, isConstant: true });
+  }
   rows.push(
-    { label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qualified Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull },
+    { label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qualified Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull, showGrowth: true, isEmerging: isEmergingOB },
   );
-  // 2-4. Win Rate, ACV, Sales Cycle (secondary)
   if (targets) {
     const ob = targets.newBusiness.outbound;
     rows.push(
-      { label: 'Win Rate', getMonthly: () => ob.winRate, getQuarterly: () => ob.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
-      { label: 'ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'Win Rate', getMonthly: () => ob.winRate, getQuarterly: () => ob.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingOB },
+      { label: 'ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, isEmerging: isEmergingOB },
+      { label: 'Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, isEmerging: isEmergingOB },
     );
+    if (isEmergingOB) {
+      rows.push({ label: '~ Target assumptions — no historical baseline', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingNote: true, isConstant: true });
+      rows.push({ label: 'Walk-to Math', walkToText: walkTo(ob.pipelineMonthly, ob.winRate), getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isWalkToMath: true, isConstant: true });
+    }
   }
-  // 5. Outbound Closed Won $
   rows.push(
-    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
+    { label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true, showGrowth: true, isEmerging: isEmergingOB },
   );
-  // 6. Outbound New Customers
   rows.push(
-    {
-      label: 'Outbound New Customers',
-      getMonthly: (m) => m.outboundDeals,
-      getQuarterly: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0),
-      fmt: formatNumber,
-    },
+    { label: 'Outbound New Customers', getMonthly: (m) => m.outboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingOB },
   );
 
-  // ── New Product Inbound group (pipeline-based, same as outbound) ──
+  // ── New Product Inbound group ──
+  if (isEmergingNP) {
+    rows.push({ label: '✦ New Product — Emerging (Target Assumptions)', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingHeader: true, isConstant: true });
+  }
   rows.push(
-    { label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull },
+    { label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull, showGrowth: true, isEmerging: isEmergingNP },
   );
   if (targets) {
     const npIb = targets.newProduct.inbound;
     rows.push(
-      { label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
-      { label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
+      { label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
+      { label: 'Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
     );
+    if (isEmergingNP) {
+      rows.push({ label: '~ Target assumptions — no historical baseline', getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isEmergingNote: true, isConstant: true });
+      rows.push({ label: 'Walk-to Math', walkToText: walkTo(npIb.hisMonthly * npIb.hisToPipelineRate * npIb.acv, npIb.winRate), getMonthly: ZERO, getQuarterly: ZERO, fmt: () => '', isWalkToMath: true, isConstant: true });
+    }
   }
   rows.push(
-    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
+    { label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true, showGrowth: true, isEmerging: isEmergingNP },
   );
   rows.push(
-    {
-      label: 'New Product Inbound Customers',
-      monthlyLabel: 'NP Inbound Customers',
-      getMonthly: (m) => m.newProductInboundDeals,
-      getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0),
-      fmt: formatNumber,
-    },
+    { label: 'New Product Inbound Customers', monthlyLabel: 'NP Inbound Customers', getMonthly: (m) => m.newProductInboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingNP },
   );
 
-  // ── New Product Outbound group (same order as Outbound) ──
+  // ── New Product Outbound group ──
   rows.push(
-    { label: 'NP Outbound Qualified Pipeline $', monthlyLabel: 'NP OB Qual. Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull },
+    { label: 'NP Outbound Qualified Pipeline $', monthlyLabel: 'NP OB Qual. Pipeline', getMonthly: (m) => m.newProductOutboundPipelineCreated, getQuarterly: (q) => q.newProductOutboundPipelineCreated, fmt: formatCurrencyFull, showGrowth: true, isEmerging: isEmergingNP },
   );
   if (targets) {
     const npOb = targets.newProduct.outbound;
     rows.push(
-      { label: 'Win Rate', getMonthly: () => npOb.winRate, getQuarterly: () => npOb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true },
-      { label: 'ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
-      { label: 'Sales Cycle', getMonthly: () => npOb.salesCycleMonths, getQuarterly: () => npOb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true },
+      { label: 'Win Rate', getMonthly: () => npOb.winRate, getQuarterly: () => npOb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
+      { label: 'ACV', getMonthly: () => npOb.acv, getQuarterly: () => npOb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
+      { label: 'Sales Cycle', getMonthly: () => npOb.salesCycleMonths, getQuarterly: () => npOb.salesCycleMonths, fmt: (v) => `${v} mo`, isSecondary: true, isConstant: true, isEmerging: isEmergingNP },
     );
   }
   rows.push(
-    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true },
+    { label: 'New Product Outbound Won', monthlyLabel: 'NP Outbound Won', getMonthly: (m) => m.newProductOutboundClosedWon, getQuarterly: (q) => q.newProductOutboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true, showGrowth: true, isEmerging: isEmergingNP },
   );
   rows.push(
-    {
-      label: 'New Product Outbound Customers',
-      monthlyLabel: 'NP Outbound Customers',
-      getMonthly: (m) => m.newProductOutboundDeals,
-      getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductOutboundDeals, 0),
-      fmt: formatNumber,
-    },
+    { label: 'New Product Outbound Customers', monthlyLabel: 'NP Outbound Customers', getMonthly: (m) => m.newProductOutboundDeals, getQuarterly: (q) => q.months.reduce((s, m) => s + m.newProductOutboundDeals, 0), fmt: formatNumber, showGrowth: true, isEmerging: isEmergingNP },
   );
 
-  // ── Expansion group (rate first, then revenue, then customers) ──
+  // ── Expansion group ──
   if (targets) {
     rows.push(
       { label: 'Expansion Pipeline $', getMonthly: () => targets.expansion.pipelineMonthly ?? 0, getQuarterly: () => targets.expansion.pipelineMonthly ?? 0, fmt: formatCurrencyFull, isSecondary: true, isConstant: true },
@@ -233,7 +237,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     );
   }
   rows.push(
-    { label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true },
+    { label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, isPurple: true, showGrowth: true },
   );
   rows.push(
     {
@@ -250,7 +254,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── Churn group (rate first, then revenue, then customers) ──
+  // ── Churn group ──
   if (targets) {
     rows.push(
       { label: 'Churn Rate', getMonthly: () => targets.churn.monthlyChurnRate, getQuarterly: () => targets.churn.monthlyChurnRate, fmt: formatPercent, isSecondary: true, isConstant: true, isChurn: true },
@@ -277,10 +281,25 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
 
   // ── Totals ──
   rows.push(
-    { label: 'Total New ARR', monthlyLabel: 'Net New ARR', getMonthly: (m) => m.totalNewARR, getQuarterly: (q) => q.totalNewARR, fmt: formatCurrencyFull, isHighlight: true },
+    { label: 'Total New ARR', monthlyLabel: 'Net New ARR', getMonthly: (m) => m.totalNewARR, getQuarterly: (q) => q.totalNewARR, fmt: formatCurrencyFull, isHighlight: true, showGrowth: true },
   );
 
   return rows;
+}
+
+/* ── Growth formatting (QoQ / MoM) ───────────────────────── */
+
+function formatGrowth(current: number, previous: number, fmt: (v: number) => string): { text: string; color: string } {
+  const delta = current - previous;
+  if (previous === 0 && current === 0) return { text: '—', color: 'text-gray-300' };
+  const sign = delta >= 0 ? '+' : '-';
+  const arrow = delta >= 0 ? '↑' : '↓';
+  const pctChange = previous !== 0 ? Math.abs(delta / previous) * 100 : 0;
+  const pctStr = previous !== 0 ? ` (${sign}${pctChange.toFixed(0)}%)` : '';
+  return {
+    text: `${arrow} ${sign}${fmt(Math.abs(delta))}${pctStr}`,
+    color: delta >= 0 ? 'text-green-600' : 'text-red-500',
+  };
 }
 
 /* ── Planning mode helpers ────────────────────────────────── */
@@ -345,8 +364,8 @@ function PipelineClockIcon({ status, tooltip }: { status: 'green' | 'amber' | 'r
 
 /* ── Quarterly View ───────────────────────────────────────── */
 
-function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly, pipelineTimingMap }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[]; pipelineTimingMap?: PipelineTimingMap }) {
-  const rows = useMemo(() => buildRows(targets), [targets]);
+function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planQuarterly, pipelineTimingMap, channelConfig }: { quarterly: QuarterlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planQuarterly?: QuarterlyResult[]; pipelineTimingMap?: PipelineTimingMap; channelConfig?: ChannelConfig }) {
+  const rows = useMemo(() => buildRows(targets, channelConfig), [targets, channelConfig]);
   const cm = currentMonth ?? 1;
 
   const quarterStatuses = useMemo(
@@ -417,6 +436,35 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
       </thead>
       <tbody>
         {rows.map((row, idx) => {
+          // ── Special rows: emerging header, note, walk-to-math ──
+          if (row.isEmergingHeader) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-200 bg-amber-50">
+                <td colSpan={quarterly.length + 3} className="py-1.5 px-3 text-xs font-semibold text-amber-800 border-l-2 border-amber-400">
+                  {row.label}
+                </td>
+              </tr>
+            );
+          }
+          if (row.isEmergingNote) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-100 bg-amber-50/50">
+                <td colSpan={quarterly.length + 3} className="py-1 px-3 pl-6 text-[10px] italic text-amber-600 border-l-2 border-amber-300">
+                  {row.label}
+                </td>
+              </tr>
+            );
+          }
+          if (row.isWalkToMath) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-100 bg-amber-50/30">
+                <td colSpan={quarterly.length + 3} className="py-1 px-3 pl-6 text-[10px] font-mono text-amber-700 border-l-2 border-amber-300">
+                  {row.walkToText}
+                </td>
+              </tr>
+            );
+          }
+
           const quarterValues: number[] = quarterly.map((q) => row.getQuarterly(q));
 
           const total = row.isConstant
@@ -425,14 +473,16 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
           // Plan values for variance
           const planQuarterValues = planQuarterly ? planQuarterly.map((q) => row.getQuarterly(q)) : null;
+          const emergingBorder = row.isEmerging ? ' border-l-2 border-amber-300' : '';
 
           return (
             <React.Fragment key={`${row.label}-${idx}`}>
               <tr
-                className={`border-b border-gray-100 ${rowBgClass(row)}`}
+                className={`border-b border-gray-100 ${rowBgClass(row)}${emergingBorder}`}
               >
                 <td className={cellLabelClass(row)}>
                   {row.label}
+                  {row.isEmerging && !row.isSecondary && <span className="ml-1 text-[9px] text-amber-600">✦</span>}
                   {pipelineTimingMap?.[row.label] && (() => {
                     const entries = Object.values(pipelineTimingMap[row.label]);
                     const worst = entries.find((e) => e.status === 'red') || entries.find((e) => e.status === 'amber') || entries[0];
@@ -451,6 +501,19 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
                   {row.fmt(total)}
                 </td>
               </tr>
+              {/* QoQ growth sub-row */}
+              {row.showGrowth && !row.isConstant && (
+                <tr className={`border-b border-gray-50${emergingBorder}`}>
+                  <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px]">QoQ</td>
+                  <td className="py-0.5 px-3"></td>
+                  {quarterValues.map((val, qi) => {
+                    if (qi === 0) return <td key={`qoq-${qi}`} className="py-0.5 px-3 text-right text-gray-300 italic text-[10px]">—</td>;
+                    const g = formatGrowth(val, quarterValues[qi - 1], row.fmt);
+                    return <td key={`qoq-${qi}`} className={`py-0.5 px-3 text-right italic text-[10px] ${g.color}`}>{g.text}</td>;
+                  })}
+                  <td className="py-0.5 px-3 text-right text-gray-300 italic text-[10px]">—</td>
+                </tr>
+              )}
               {showVariance && planQuarterValues && !row.isSecondary && !row.isConstant && (
                 <tr className="border-b border-gray-50">
                   <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px]">vs Plan</td>
@@ -489,9 +552,9 @@ function QuarterlyView({ quarterly, startingARR, targets, isInYear, currentMonth
 
 /* ── Monthly View ─────────────────────────────────────────── */
 
-function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap, bets, marketInsights }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap; bets?: StrategicBet[]; marketInsights?: MarketInsight[] }) {
+function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, detailedActuals, showVariance, planMonthly, pipelineTimingMap, bets, marketInsights, channelConfig }: { monthly: MonthlyResult[]; startingARR: number; targets?: RevenueBreakdown; isInYear?: boolean; currentMonth?: Month; detailedActuals?: MonthlyActuals[]; showVariance?: boolean; planMonthly?: MonthlyResult[]; pipelineTimingMap?: PipelineTimingMap; bets?: StrategicBet[]; marketInsights?: MarketInsight[]; channelConfig?: ChannelConfig }) {
   const rows = useMemo(() => {
-    const base = buildRows(targets);
+    const base = buildRows(targets, channelConfig);
     // Add Cumulative ARR at end
     return [
       ...base,
@@ -551,46 +614,92 @@ function MonthlyView({ monthly, startingARR, targets, isInYear, currentMonth, de
         )}
       </thead>
       <tbody>
-        {rows.map((row, idx) => (
-          <React.Fragment key={`${row.monthlyLabel || row.label}-${idx}`}>
-            <tr
-              className={`border-b border-gray-100 ${rowBgClass(row)}`}
-            >
-              <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
-                {row.monthlyLabel || row.label}
-              </td>
-              {monthly.map((m) => {
-                const isAct = isInYear && m.month < cm;
-                const val = row.getMonthly(m);
-                const timing = pipelineTimingMap?.[row.label]?.[m.month];
-                return (
-                  <td key={m.month} className={`${cellValueClass(row, true)}${isAct && !row.isSecondary && !row.isConstant ? ' bg-green-50/50' : ''}`}>
-                    {isAct && !row.isSecondary && !row.isConstant
-                      ? <span className="text-green-700">{row.fmt(val)}</span>
-                      : row.fmt(val)
-                    }
-                    {timing && <PipelineClockIcon status={timing.status} tooltip={timing.tooltip} />}
-                  </td>
-                );
-              })}
-            </tr>
-            {showVariance && planMonthly && !row.isSecondary && !row.isConstant && (
-              <tr className="border-b border-gray-50">
-                <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px] sticky left-0 bg-white">vs Plan</td>
+        {rows.map((row, idx) => {
+          // ── Special rows: emerging header, note, walk-to-math ──
+          if (row.isEmergingHeader) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-200 bg-amber-50">
+                <td colSpan={monthly.length + 1} className="py-1.5 px-3 text-xs font-semibold text-amber-800 border-l-2 border-amber-400 sticky left-0">
+                  {row.label}
+                </td>
+              </tr>
+            );
+          }
+          if (row.isEmergingNote) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-100 bg-amber-50/50">
+                <td colSpan={monthly.length + 1} className="py-1 px-3 pl-6 text-[10px] italic text-amber-600 border-l-2 border-amber-300 sticky left-0">
+                  {row.label}
+                </td>
+              </tr>
+            );
+          }
+          if (row.isWalkToMath) {
+            return (
+              <tr key={`${row.label}-${idx}`} className="border-b border-amber-100 bg-amber-50/30">
+                <td colSpan={monthly.length + 1} className="py-1 px-3 pl-6 text-[10px] font-mono text-amber-700 border-l-2 border-amber-300 sticky left-0">
+                  {row.walkToText}
+                </td>
+              </tr>
+            );
+          }
+
+          const emergingBorder = row.isEmerging ? ' border-l-2 border-amber-300' : '';
+          const monthlyValues = monthly.map((m) => row.getMonthly(m));
+
+          return (
+            <React.Fragment key={`${row.monthlyLabel || row.label}-${idx}`}>
+              <tr
+                className={`border-b border-gray-100 ${rowBgClass(row)}${emergingBorder}`}
+              >
+                <td className={`${cellLabelClass(row)} sticky left-0 bg-inherit`}>
+                  {row.monthlyLabel || row.label}
+                  {row.isEmerging && !row.isSecondary && <span className="ml-1 text-[9px] text-amber-600">✦</span>}
+                </td>
                 {monthly.map((m, mi) => {
-                  if (m.month >= cm) {
-                    return <td key={`var-${mi}`} className="py-0.5 px-2 text-right text-gray-300 italic text-[10px]">—</td>;
-                  }
-                  const actual = row.getMonthly(m);
-                  const plan = planMonthly[mi] ? row.getMonthly(planMonthly[mi]) : 0;
-                  const diff = actual - plan;
-                  const v = formatVariance(diff, row.fmt);
-                  return <td key={`var-${mi}`} className={`py-0.5 px-2 text-right italic text-[10px] ${v.color}`}>{v.text}</td>;
+                  const isAct = isInYear && m.month < cm;
+                  const val = monthlyValues[mi];
+                  const timing = pipelineTimingMap?.[row.label]?.[m.month];
+                  return (
+                    <td key={m.month} className={`${cellValueClass(row, true)}${isAct && !row.isSecondary && !row.isConstant ? ' bg-green-50/50' : ''}`}>
+                      {isAct && !row.isSecondary && !row.isConstant
+                        ? <span className="text-green-700">{row.fmt(val)}</span>
+                        : row.fmt(val)
+                      }
+                      {timing && <PipelineClockIcon status={timing.status} tooltip={timing.tooltip} />}
+                    </td>
+                  );
                 })}
               </tr>
-            )}
-          </React.Fragment>
-        ))}
+              {/* MoM growth sub-row */}
+              {row.showGrowth && !row.isConstant && (
+                <tr className={`border-b border-gray-50${emergingBorder}`}>
+                  <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px] sticky left-0 bg-white">MoM</td>
+                  {monthlyValues.map((val, mi) => {
+                    if (mi === 0) return <td key={`mom-${mi}`} className="py-0.5 px-2 text-right text-gray-300 italic text-[10px]">—</td>;
+                    const g = formatGrowth(val, monthlyValues[mi - 1], row.fmt);
+                    return <td key={`mom-${mi}`} className={`py-0.5 px-2 text-right italic text-[10px] ${g.color}`}>{g.text}</td>;
+                  })}
+                </tr>
+              )}
+              {showVariance && planMonthly && !row.isSecondary && !row.isConstant && (
+                <tr className="border-b border-gray-50">
+                  <td className="py-0.5 px-3 pl-6 text-gray-400 italic text-[10px] sticky left-0 bg-white">vs Plan</td>
+                  {monthly.map((m, mi) => {
+                    if (m.month >= cm) {
+                      return <td key={`var-${mi}`} className="py-0.5 px-2 text-right text-gray-300 italic text-[10px]">—</td>;
+                    }
+                    const actual = row.getMonthly(m);
+                    const plan = planMonthly[mi] ? row.getMonthly(planMonthly[mi]) : 0;
+                    const diff = actual - plan;
+                    const v = formatVariance(diff, row.fmt);
+                    return <td key={`var-${mi}`} className={`py-0.5 px-2 text-right italic text-[10px] ${v.color}`}>{v.text}</td>;
+                  })}
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
       </tbody>
     </table>
   );
