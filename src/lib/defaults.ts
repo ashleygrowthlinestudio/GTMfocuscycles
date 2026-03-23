@@ -257,6 +257,9 @@ export const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   hasInboundHistory: true,
   hasOutboundHistory: true,
   hasNewProductHistory: true,
+  hasEmergingInbound: false,
+  hasEmergingOutbound: false,
+  hasEmergingNewProduct: false,
 };
 
 export function createDefaultPlan(): GTMPlan {

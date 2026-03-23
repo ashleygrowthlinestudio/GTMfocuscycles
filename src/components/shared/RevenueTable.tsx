@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet, MarketInsight } from '@/lib/types';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet, MarketInsight, ChannelConfig } from '@/lib/types';
 import type { PipelineTimingMap } from '@/lib/engine';
 import { getBetRampPct, getInsightsForMonth } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
@@ -20,11 +20,12 @@ interface RevenueTableProps {
   pipelineTimingMap?: PipelineTimingMap;
   bets?: StrategicBet[];
   marketInsights?: MarketInsight[];
+  channelConfig?: ChannelConfig;
 }
 
 type ViewMode = 'quarterly' | 'monthly';
 
-export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets, marketInsights }: RevenueTableProps) {
+export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets, marketInsights, channelConfig }: RevenueTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
   const [showVariance, setShowVariance] = useState(false);
   const isInYear = planningMode === 'in-year';
@@ -66,6 +67,14 @@ export default function RevenueTable({ monthly, quarterly, startingARR, label, t
         </div>
       </div>
 
+      {channelConfig && (channelConfig.hasEmergingInbound || channelConfig.hasEmergingOutbound || channelConfig.hasEmergingNewProduct) && (
+        <div className="mx-3 my-2 flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+          <span className="text-amber-600 text-xs">✦</span>
+          <span className="text-xs text-amber-700">
+            Emerging channel{(Number(channelConfig.hasEmergingInbound) + Number(channelConfig.hasEmergingOutbound) + Number(channelConfig.hasEmergingNewProduct)) > 1 ? 's' : ''} active — no historical data, projections based on targets only
+          </span>
+        </div>
+      )}
       <div className="overflow-x-auto">
         {viewMode === 'quarterly' ? (
           <QuarterlyView quarterly={quarterly} startingARR={startingARR} targets={targets} isInYear={isInYear} currentMonth={currentMonth} detailedActuals={detailedActuals} showVariance={showVariance} planQuarterly={planQuarterly} pipelineTimingMap={pipelineTimingMap} />
@@ -91,6 +100,7 @@ type TableRow = {
   isClosedWon?: boolean; // purple highlight for closed-won rows
   isPurple?: boolean;    // purple highlight for expansion/churn revenue
   isConstant?: boolean;  // don't sum for total/annual column
+  isEmerging?: boolean;  // emerging channel — show badge
 };
 
 function buildRows(targets?: RevenueBreakdown): TableRow[] {
@@ -163,16 +173,7 @@ function buildRows(targets?: RevenueBreakdown): TableRow[] {
     },
   );
 
-  // ── New Product Inbound group (same order as Inbound) ──
-  rows.push(
-    { label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS Volume', getMonthly: (m) => m.newProductHisRequired, getQuarterly: (q) => q.newProductHisRequired, fmt: formatNumber },
-  );
-  if (targets) {
-    const npIb = targets.newProduct.inbound;
-    rows.push(
-      { label: 'HIS → Pipeline Rate', getMonthly: () => npIb.hisToPipelineRate, getQuarterly: () => npIb.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true },
-    );
-  }
+  // ── New Product Inbound group (pipeline-based, same as outbound) ──
   rows.push(
     { label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull },
   );

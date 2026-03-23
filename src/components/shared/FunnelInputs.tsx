@@ -22,6 +22,8 @@ interface FunnelInputsProps {
 
   hideOutbound?: boolean;
 
+  isNewProduct?: boolean;
+
 }
 
 export default function FunnelInputs({
@@ -40,6 +42,8 @@ export default function FunnelInputs({
 
   hideOutbound = false,
 
+  isNewProduct = false,
+
 }: FunnelInputsProps) {
 
   return (
@@ -54,35 +58,39 @@ export default function FunnelInputs({
 
         {!hideInbound && <div className="space-y-3">
 
-          <h4 className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Inbound</h4>
+          <h4 className="text-xs font-semibold text-blue-600 uppercase tracking-wide">{isNewProduct ? 'New Product' : 'Inbound'}</h4>
 
-          <MetricInput
+          {!isNewProduct && (
+            <>
+              <MetricInput
 
-            label="High-Intent Submissions / mo"
+                label="High-Intent Submissions / mo"
 
-            value={inbound.hisMonthly}
+                value={inbound.hisMonthly}
 
-            onChange={(v) => onInboundChange({ ...inbound, hisMonthly: v })}
+                onChange={(v) => onInboundChange({ ...inbound, hisMonthly: v })}
 
-            type="number"
+                type="number"
 
-            hint="Monthly high-intent form submissions"
+                hint="Monthly high-intent form submissions"
 
-          />
+              />
 
-          <MetricInput
+              <MetricInput
 
-            label="HIS → Pipeline Rate"
+                label="HIS → Pipeline Rate"
 
-            value={inbound.hisToPipelineRate}
+                value={inbound.hisToPipelineRate}
 
-            onChange={(v) => onInboundChange({ ...inbound, hisToPipelineRate: v })}
+                onChange={(v) => onInboundChange({ ...inbound, hisToPipelineRate: v })}
 
-            type="percent"
+                type="percent"
 
-            hint="Conversion from HIS to qualified pipeline"
+                hint="Conversion from HIS to qualified pipeline"
 
-          />
+              />
+            </>
+          )}
 
           <MetricInput
 

@@ -56,8 +56,6 @@ function buildRows(
   }
 
   if (cc.hasNewProduct) {
-    rows.push({ label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS Volume', getMonthly: (m) => m.newProductHisRequired, getQuarterly: (q) => q.newProductHisRequired, fmt: formatNumber, metricType: 'count' });
-    rows.push({ label: 'HIS → Pipeline Rate', getMonthly: () => npIb.hisToPipelineRate, getQuarterly: () => npIb.hisToPipelineRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
     rows.push({ label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull, metricType: 'currency' });
     rows.push({ label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
     rows.push({ label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
@@ -226,6 +224,16 @@ export default function GapAnalysis() {
           </div>
         </div>
       </div>
+
+      {/* Emerging channels note */}
+      {(cc.hasEmergingInbound || cc.hasEmergingOutbound || cc.hasEmergingNewProduct) && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+          <span className="text-amber-600 text-xs">✦</span>
+          <span className="text-xs text-amber-700">
+            Emerging channels have no historical baseline — Status Quo shows $0 for these channels. Gap analysis reflects targets only.
+          </span>
+        </div>
+      )}
 
       {/* Gap spreadsheet */}
       <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">

@@ -201,6 +201,7 @@ export default function TopDownPlan() {
         planQuarterly={isInYear && hasActuals ? planModel.quarterly : undefined}
         pipelineTimingMap={pipelineTimingMap}
         marketInsights={includeInsights ? enabledInsights : undefined}
+        channelConfig={cc}
       />
 
       {/* Pipeline Creation Timeline (collapsible) */}

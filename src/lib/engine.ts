@@ -83,8 +83,13 @@ export function calculateMonthlyRevenue(
     const obPipeline = calcOutboundPipeline(inputs.newBusiness.outbound, seasonWeight, rampMult);
     outboundCorePipeline[i] = obPipeline;
 
-    const npIb = calcInboundPipeline(inputs.newProduct.inbound, seasonWeight, rampMult);
-    inboundNewProdPipeline[i] = npIb.pipeline;
+    // New product: pipeline-based (same as outbound), not HIS-based
+    const npIbPipeline = calcOutboundPipeline(
+      { pipelineMonthly: inputs.newProduct.inbound.hisMonthly * inputs.newProduct.inbound.hisToPipelineRate * inputs.newProduct.inbound.acv || 0, winRate: inputs.newProduct.inbound.winRate, acv: inputs.newProduct.inbound.acv, salesCycleMonths: inputs.newProduct.inbound.salesCycleMonths },
+      seasonWeight, rampMult,
+    );
+    inboundNewProdPipeline[i] = npIbPipeline;
+    const npIbHis = 0; // NP no longer tracks HIS
 
     const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
     outboundNewProdPipeline[i] = npObPipeline;
@@ -149,10 +154,10 @@ export function calculateMonthlyRevenue(
       month,
       inboundPipelineCreated: ib.pipeline,
       outboundPipelineCreated: obPipeline,
-      newProductInboundPipelineCreated: npIb.pipeline,
+      newProductInboundPipelineCreated: npIbPipeline,
       newProductOutboundPipelineCreated: npObPipeline,
       hisRequired: ib.his,
-      newProductHisRequired: npIb.his,
+      newProductHisRequired: npIbHis,
       inboundClosedWon,
       outboundClosedWon,
       newProductInboundClosedWon: npInboundClosedWon,
@@ -372,8 +377,12 @@ export function runModelWithBets(
     const obPipeline = calcOutboundPipeline(inputs.newBusiness.outbound, seasonWeight, rampMult);
     outboundCorePipeline[i] = obPipeline;
 
-    const npIb = calcInboundPipeline(inputs.newProduct.inbound, seasonWeight, rampMult);
-    inboundNewProdPipeline[i] = npIb.pipeline;
+    // New product: pipeline-based (same as outbound), not HIS-based
+    const npIbPipelineBets = calcOutboundPipeline(
+      { pipelineMonthly: inputs.newProduct.inbound.hisMonthly * inputs.newProduct.inbound.hisToPipelineRate * inputs.newProduct.inbound.acv || 0, winRate: inputs.newProduct.inbound.winRate, acv: inputs.newProduct.inbound.acv, salesCycleMonths: inputs.newProduct.inbound.salesCycleMonths },
+      seasonWeight, rampMult,
+    );
+    inboundNewProdPipeline[i] = npIbPipelineBets;
 
     const npObPipeline = calcOutboundPipeline(inputs.newProduct.outbound, seasonWeight, rampMult);
     outboundNewProdPipeline[i] = npObPipeline;
@@ -433,10 +442,10 @@ export function runModelWithBets(
       month,
       inboundPipelineCreated: ib.pipeline,
       outboundPipelineCreated: obPipeline,
-      newProductInboundPipelineCreated: npIb.pipeline,
+      newProductInboundPipelineCreated: npIbPipelineBets,
       newProductOutboundPipelineCreated: npObPipeline,
       hisRequired: ib.his,
-      newProductHisRequired: npIb.his,
+      newProductHisRequired: 0,
       inboundClosedWon,
       outboundClosedWon,
       newProductInboundClosedWon: npInboundClosedWon,
@@ -662,6 +671,20 @@ export function applyChannelConfig(
       modified.newBusiness.outbound = { ...ZERO_OUTBOUND };
     }
     if (!config.hasNewProductHistory) {
+      modified.newProduct.inbound = { ...ZERO_INBOUND };
+      modified.newProduct.outbound = { ...ZERO_OUTBOUND };
+    }
+  }
+
+  // Emerging channels: in historical mode, zero out so no baseline is used
+  if (mode === 'historical') {
+    if (config.hasEmergingInbound) {
+      modified.newBusiness.inbound = { ...ZERO_INBOUND };
+    }
+    if (config.hasEmergingOutbound) {
+      modified.newBusiness.outbound = { ...ZERO_OUTBOUND };
+    }
+    if (config.hasEmergingNewProduct) {
       modified.newProduct.inbound = { ...ZERO_INBOUND };
       modified.newProduct.outbound = { ...ZERO_OUTBOUND };
     }
@@ -899,8 +922,12 @@ export function runModelWithActuals(
       ibCorePipe[i] = ib.pipeline;
       const obPipeline = calcOutboundPipeline(recal.newBusiness.outbound, seasonWeight, rampMult);
       obCorePipe[i] = obPipeline;
-      const npIb = calcInboundPipeline(recal.newProduct.inbound, seasonWeight, rampMult);
-      ibNewProdPipe[i] = npIb.pipeline;
+      // New product: pipeline-based (same as outbound), not HIS-based
+      const npIbPipelineActuals = calcOutboundPipeline(
+        { pipelineMonthly: recal.newProduct.inbound.hisMonthly * recal.newProduct.inbound.hisToPipelineRate * recal.newProduct.inbound.acv || 0, winRate: recal.newProduct.inbound.winRate, acv: recal.newProduct.inbound.acv, salesCycleMonths: recal.newProduct.inbound.salesCycleMonths },
+        seasonWeight, rampMult,
+      );
+      ibNewProdPipe[i] = npIbPipelineActuals;
       const npObPipeline = calcOutboundPipeline(recal.newProduct.outbound, seasonWeight, rampMult);
       obNewProdPipe[i] = npObPipeline;
 
@@ -948,10 +975,10 @@ export function runModelWithActuals(
         month,
         inboundPipelineCreated: ib.pipeline,
         outboundPipelineCreated: obPipeline,
-        newProductInboundPipelineCreated: npIb.pipeline,
+        newProductInboundPipelineCreated: npIbPipelineActuals,
         newProductOutboundPipelineCreated: npObPipeline,
         hisRequired: ib.his,
-        newProductHisRequired: npIb.his,
+        newProductHisRequired: 0,
         inboundClosedWon,
         outboundClosedWon,
         newProductInboundClosedWon: npInboundClosedWon,

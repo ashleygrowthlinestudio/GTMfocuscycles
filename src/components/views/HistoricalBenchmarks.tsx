@@ -196,8 +196,6 @@ function buildRows(breakdown: RevenueBreakdown, cc: { hasInbound: boolean; hasOu
   }
 
   if (cc.hasNewProduct) {
-    rows.push({ label: 'NP Inbound HIS Volume', monthlyLabel: 'NP IB HIS Volume', getMonthly: (m) => m.newProductHisRequired, getQuarterly: (q) => q.newProductHisRequired, fmt: formatNumber, trendGetter: (q) => q.newProductHIS });
-    rows.push({ label: 'HIS → Pipeline Rate', getMonthly: () => npIb.hisToPipelineRate, getQuarterly: () => npIb.hisToPipelineRate, fmt: formatPercent, isSecondary: true, isConstant: true, trendGetter: (q) => q.newProductHISToPipelineRate });
     rows.push({ label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull, trendGetter: (q) => q.newProductQualifiedPipeline });
     rows.push({ label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, isSecondary: true, isConstant: true, trendGetter: (q) => q.newProductWinRate });
     rows.push({ label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, isSecondary: true, isConstant: true, trendGetter: (q) => q.newProductACV });
@@ -352,6 +350,16 @@ export default function HistoricalBenchmarks() {
             Currently showing estimates based on available data.
             {filledCount > 0 && ` (${filledCount}/4 quarters filled)`}
           </p>
+        </div>
+      )}
+
+      {/* Emerging channels note */}
+      {(cc.hasEmergingInbound || cc.hasEmergingOutbound || cc.hasEmergingNewProduct) && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+          <span className="text-amber-600 text-xs">✦</span>
+          <span className="text-xs text-amber-700">
+            Emerging channels show &quot;No historical data&quot; — projections for these channels are based on targets only.
+          </span>
         </div>
       )}
 

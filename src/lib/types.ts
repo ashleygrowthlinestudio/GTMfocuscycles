@@ -196,6 +196,10 @@ export interface ChannelConfig {
   hasInboundHistory: boolean;
   hasOutboundHistory: boolean;
   hasNewProductHistory: boolean;
+  // Emerging channels (no historical data required)
+  hasEmergingInbound: boolean;
+  hasEmergingOutbound: boolean;
+  hasEmergingNewProduct: boolean;
 }
 
 // ── Quarterly historical data (Setup sheet) ──────────────────

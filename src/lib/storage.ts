@@ -30,6 +30,9 @@ export function loadPlan(): GTMPlan | null {
     if (plan.channelConfig) {
       if (plan.channelConfig.hasExpansion === undefined) plan.channelConfig.hasExpansion = true;
       if (plan.channelConfig.hasChurn === undefined) plan.channelConfig.hasChurn = true;
+      if (plan.channelConfig.hasEmergingInbound === undefined) plan.channelConfig.hasEmergingInbound = false;
+      if (plan.channelConfig.hasEmergingOutbound === undefined) plan.channelConfig.hasEmergingOutbound = false;
+      if (plan.channelConfig.hasEmergingNewProduct === undefined) plan.channelConfig.hasEmergingNewProduct = false;
     }
 
     // Backfill planning mode fields

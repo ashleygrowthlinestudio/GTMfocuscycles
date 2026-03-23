@@ -602,6 +602,53 @@ export default function Setup() {
           <ChannelToggle label="Expansion" checked={cc.hasExpansion} onChange={(v) => updateChannel('hasExpansion', v)} />
           <ChannelToggle label="Churn" checked={cc.hasChurn} onChange={(v) => updateChannel('hasChurn', v)} />
         </div>
+
+        <div className="mt-6 pt-4 border-t border-gray-100">
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Emerging Channels</h4>
+          <p className="text-xs text-gray-400 mb-3">Channels you&apos;re building for the first time — no historical data required</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+            <div>
+              <ChannelToggle
+                label="Inbound"
+                checked={cc.hasEmergingInbound ?? false}
+                onChange={(v) => {
+                  if (v && cc.hasInbound) { alert('This channel is already marked as active. Remove it from Active Channels first.'); return; }
+                  dispatch({ type: 'SET_EMERGING_CHANNELS', payload: { hasEmergingInbound: v } });
+                }}
+              />
+              {cc.hasEmergingInbound && cc.hasInbound && (
+                <p className="text-[10px] text-amber-600 mt-0.5">Already active — remove from Active first</p>
+              )}
+            </div>
+            <div>
+              <ChannelToggle
+                label="Outbound"
+                checked={cc.hasEmergingOutbound ?? false}
+                onChange={(v) => {
+                  if (v && cc.hasOutbound) { alert('This channel is already marked as active. Remove it from Active Channels first.'); return; }
+                  dispatch({ type: 'SET_EMERGING_CHANNELS', payload: { hasEmergingOutbound: v } });
+                }}
+              />
+              {cc.hasEmergingOutbound && cc.hasOutbound && (
+                <p className="text-[10px] text-amber-600 mt-0.5">Already active — remove from Active first</p>
+              )}
+            </div>
+            <div>
+              <ChannelToggle
+                label="New Product"
+                checked={cc.hasEmergingNewProduct ?? false}
+                onChange={(v) => {
+                  if (v && cc.hasNewProduct) { alert('This channel is already marked as active. Remove it from Active Channels first.'); return; }
+                  dispatch({ type: 'SET_EMERGING_CHANNELS', payload: { hasEmergingNewProduct: v } });
+                }}
+              />
+              {cc.hasEmergingNewProduct && cc.hasNewProduct && (
+                <p className="text-[10px] text-amber-600 mt-0.5">Already active — remove from Active first</p>
+              )}
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2 italic">Emerging channels use your target inputs only. No historical comparison will be shown.</p>
+        </div>
       </div>
 
       {/* Target Allocation */}

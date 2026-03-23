@@ -31,6 +31,7 @@ type Action =
   | { type: 'UPDATE_INSIGHT'; payload: MarketInsight }
   | { type: 'REMOVE_INSIGHT'; payload: string }
   | { type: 'TOGGLE_INSIGHT'; payload: string }
+  | { type: 'SET_EMERGING_CHANNELS'; payload: Partial<Pick<ChannelConfig, 'hasEmergingInbound' | 'hasEmergingOutbound' | 'hasEmergingNewProduct'>> }
   | { type: 'LOAD_PLAN'; payload: GTMPlan }
   | { type: 'RESET' };
 
@@ -115,6 +116,8 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
           i.id === action.payload ? { ...i, enabled: !i.enabled } : i,
         ),
       };
+    case 'SET_EMERGING_CHANNELS':
+      return { ...state, channelConfig: { ...state.channelConfig, ...action.payload } };
     case 'LOAD_PLAN':
       return action.payload;
     case 'RESET':
