@@ -762,8 +762,8 @@ export function capModelAtTarget(model: ModelRun, targetARR: number, startingARR
   const neededNewARR = targetARR - startingARR;
   const uncappedTotal = model.monthly.reduce((s, m) => s + m.totalNewARR, 0);
 
-  // If the model already matches or undershoots the target, pass through as-is
-  if (uncappedTotal <= 0 || uncappedTotal <= neededNewARR) {
+  // If target is at or below starting ARR, or model undershoots, pass through as-is
+  if (neededNewARR <= 0 || uncappedTotal <= 0 || uncappedTotal <= neededNewARR) {
     return model;
   }
 

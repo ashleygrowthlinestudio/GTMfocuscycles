@@ -243,11 +243,11 @@ function buildRows(targets?: RevenueBreakdown, cc?: ChannelConfig): TableRow[] {
     {
       label: 'Expansion Customers',
       getMonthly: (m) => {
-        const acv = targets?.newBusiness.inbound.acv || targets?.newBusiness.outbound.acv || 50000;
+        const acv = targets?.expansion?.acv || targets?.newBusiness.inbound.acv || targets?.newBusiness.outbound.acv || 50000;
         return acv > 0 ? m.expansionRevenue / acv : 0;
       },
       getQuarterly: (q) => {
-        const acv = targets?.newBusiness.inbound.acv || targets?.newBusiness.outbound.acv || 50000;
+        const acv = targets?.expansion?.acv || targets?.newBusiness.inbound.acv || targets?.newBusiness.outbound.acv || 50000;
         return acv > 0 ? q.expansionRevenue / acv : 0;
       },
       fmt: formatNumber,

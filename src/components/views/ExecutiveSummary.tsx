@@ -2,9 +2,11 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithBets, applyChannelConfig } from '@/lib/engine';
+import { runModel, runModelWithBets, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown } from '@/lib/types';
+import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, RampConfig } from '@/lib/types';
+
+const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
 
 type ViewMode = 'quarterly' | 'monthly';
 
@@ -36,9 +38,13 @@ export default function ExecutiveSummary() {
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
   );
-  const planModel = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, { rampMonths: 1, startMonth: 1 }, plan.startingARR, plan.existingPipeline),
+  const uncappedPlanModel = useMemo(
+    () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
     [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
+  );
+  const planModel = useMemo(
+    () => capModelAtTarget(uncappedPlanModel, plan.targetARR, plan.startingARR),
+    [uncappedPlanModel, plan.targetARR, plan.startingARR],
   );
 
   // Status Quo model (historical trend)
@@ -55,11 +61,11 @@ export default function ExecutiveSummary() {
     [effectiveHistorical, flatSeasonality, noRamp, plan.startingARR, plan.existingPipeline],
   );
 
-  // With Bets model (per-month ramped bets)
+  // With Bets model — same flat seasonality/no-ramp as SQ to isolate bet impact
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
   const withBetsModel = useMemo(
-    () => runModelWithBets(effectiveHistorical, plan.strategicBets, plan.seasonality, { rampMonths: 1, startMonth: 1 }, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, plan.strategicBets, plan.seasonality, plan.startingARR, plan.existingPipeline],
+    () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
+    [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
   );
 
   // Key numbers
@@ -72,7 +78,9 @@ export default function ExecutiveSummary() {
 
   // Gap between SQ and target closed by bets
   const betsImpact = withBetsARR - sqARR;
-  const gapClosedPct = gapToClose > 0 ? Math.min(100, Math.round((betsImpact / gapToClose) * 100)) : 100;
+  const gapClosedPct = gapToClose > 0
+    ? Math.min(100, Math.max(0, Math.round((betsImpact / gapToClose) * 100)))
+    : (betsImpact >= 0 && sqARR >= plan.targetARR ? 100 : 0);
 
   // Progress bar percentages
   const range = Math.max(plan.targetARR, withBetsARR, sqARR) - plan.startingARR;

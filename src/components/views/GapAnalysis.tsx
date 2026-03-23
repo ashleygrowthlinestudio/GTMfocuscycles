@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, applyChannelConfig } from '@/lib/engine';
+import { runModel, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import type { RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
 
@@ -94,7 +94,7 @@ function formatDelta(planVal: number, sqVal: number, fmt: (v: number) => string,
 
   // Within 5% of status quo value (or both zero)
   if ((base > 0 && absDelta / base < 0.05) || (base === 0 && absDelta === 0)) {
-    return { text: '≈ On Par', color: 'text-green-600' };
+    return { text: '≈ On Par', color: 'text-gray-500' };
   }
 
   const sign = delta > 0 ? '+' : '-';
@@ -212,9 +212,13 @@ function GapAnalysisInner() {
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
   );
-  const planModel = useMemo(
+  const uncappedPlanModel = useMemo(
     () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
     [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
+  );
+  const planModel = useMemo(
+    () => capModelAtTarget(uncappedPlanModel, plan.targetARR, plan.startingARR),
+    [uncappedPlanModel, plan.targetARR, plan.startingARR],
   );
 
   // Status Quo model (historical trend projection)
