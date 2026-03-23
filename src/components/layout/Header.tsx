@@ -10,7 +10,7 @@ import { formatCurrency } from '@/lib/format';
 
 export default function Header() {
 
-  const { plan, dispatch } = useGTMPlan();
+  const { plan, dispatch, clientId } = useGTMPlan();
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +53,12 @@ export default function Header() {
             <span>Start: {formatCurrency(plan.startingARR)}</span>
 
             <span>Target: {formatCurrency(plan.targetARR)}</span>
+
+            {clientId !== 'default' ? (
+              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-medium">Client: {clientId}</span>
+            ) : (
+              <span className="text-gray-400 italic">No client specified — add ?client=yourname to the URL</span>
+            )}
 
           </div>
 

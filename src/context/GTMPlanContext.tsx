@@ -1,9 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef, useState } from 'react';
 import type { GTMPlan, RevenueBreakdown, SeasonalityWeights, RampConfig, ExistingPipeline, ChannelConfig, StrategicBet, MarketInsight, Actuals, PlanningMode, Month, MonthlyActuals, QuarterlyHistoricalData, TargetAllocationMode, TargetAllocations } from '@/lib/types';
 import { createDefaultPlan } from '@/lib/defaults';
 import { savePlan, loadPlan } from '@/lib/storage';
+import { saveToCloud, loadFromCloud, getClientId } from '@/lib/cloudStorage';
 
 // ── Actions ───────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ function reducer(state: GTMPlan, action: Action): GTMPlan {
 interface GTMPlanContextValue {
   plan: GTMPlan;
   dispatch: React.Dispatch<Action>;
+  clientId: string;
 }
 
 const GTMPlanContext = createContext<GTMPlanContextValue | null>(null);
@@ -139,32 +141,57 @@ export function GTMPlanProvider({ children }: { children: React.ReactNode }) {
   });
 
   const initialized = useRef(false);
+  const [clientId, setClientId] = useState('default');
 
-  // Load from localStorage on mount
+  // Load from Supabase on mount, fall back to localStorage, then defaults
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    const saved = loadPlan();
-    if (saved) {
-      dispatch({ type: 'LOAD_PLAN', payload: saved });
-    }
+
+    const cid = getClientId();
+    setClientId(cid);
+
+    (async () => {
+      try {
+        const cloudPlan = await loadFromCloud(cid);
+        if (cloudPlan) {
+          dispatch({ type: 'LOAD_PLAN', payload: cloudPlan });
+          return;
+        }
+      } catch {
+        console.warn('Supabase unreachable, falling back to localStorage');
+      }
+
+      // Fall back to localStorage
+      const saved = loadPlan();
+      if (saved) {
+        dispatch({ type: 'LOAD_PLAN', payload: saved });
+      }
+    })();
   }, []);
 
-  // Auto-save to localStorage (debounced)
+  // Auto-save: Supabase primary, localStorage fallback (debounced 500ms)
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const debouncedSave = useCallback((p: GTMPlan) => {
+  const debouncedSave = useCallback((p: GTMPlan, cid: string) => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(() => savePlan(p), 500);
+    saveTimeout.current = setTimeout(() => {
+      // Always cache to localStorage
+      savePlan(p);
+      // Save to Supabase
+      saveToCloud(cid, p).catch(() => {
+        console.warn('Failed to save to Supabase, data cached in localStorage');
+      });
+    }, 500);
   }, []);
 
   useEffect(() => {
     if (initialized.current) {
-      debouncedSave(plan);
+      debouncedSave(plan, clientId);
     }
-  }, [plan, debouncedSave]);
+  }, [plan, clientId, debouncedSave]);
 
   return (
-    <GTMPlanContext.Provider value={{ plan, dispatch }}>
+    <GTMPlanContext.Provider value={{ plan, dispatch, clientId }}>
       {children}
     </GTMPlanContext.Provider>
   );
