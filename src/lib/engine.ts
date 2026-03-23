@@ -675,6 +675,11 @@ export function applyChannelConfig(
 ): RevenueBreakdown {
   const modified: RevenueBreakdown = JSON.parse(JSON.stringify(inputs));
 
+  // Ensure newProduct exists (backfill for old plans)
+  if (!modified.newProduct) {
+    modified.newProduct = { inbound: { ...ZERO_INBOUND }, outbound: { ...ZERO_OUTBOUND } };
+  }
+
   if (mode === 'targets') {
     if (!config.hasInbound && !config.hasEmergingInbound) {
       modified.newBusiness.inbound = { ...ZERO_INBOUND };

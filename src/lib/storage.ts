@@ -63,6 +63,15 @@ export function loadPlan(): GTMPlan | null {
       if (exp.salesCycleMonths === undefined) exp.salesCycleMonths = 0;
     }
 
+    // Backfill newProduct for plans that predate the new product channel
+    const ZERO_NP = { inbound: { hisMonthly: 0, hisToPipelineRate: 0, winRate: 0, acv: 0, salesCycleMonths: 0 }, outbound: { pipelineMonthly: 0, winRate: 0, acv: 0, salesCycleMonths: 0 } };
+    if (plan.targets && !plan.targets.newProduct) {
+      (plan.targets as any).newProduct = ZERO_NP;
+    }
+    if (plan.historical && !plan.historical.newProduct) {
+      (plan.historical as any).newProduct = ZERO_NP;
+    }
+
     // Backfill market insights
     if (!plan.marketInsights) (plan as any).marketInsights = [];
 

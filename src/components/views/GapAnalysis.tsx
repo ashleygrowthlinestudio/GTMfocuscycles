@@ -26,14 +26,17 @@ type TableRow = {
   isConstant?: boolean;
 };
 
+const ZERO_IB = { hisMonthly: 0, hisToPipelineRate: 0, winRate: 0, acv: 0, salesCycleMonths: 0 };
+const ZERO_OB = { pipelineMonthly: 0, winRate: 0, acv: 0, salesCycleMonths: 0 };
+
 function buildRows(
   breakdown: RevenueBreakdown,
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean },
 ): TableRow[] {
   const rows: TableRow[] = [];
-  const ib = breakdown.newBusiness.inbound;
-  const ob = breakdown.newBusiness.outbound;
-  const npIb = breakdown.newProduct.inbound;
+  const ib = breakdown?.newBusiness?.inbound ?? ZERO_IB;
+  const ob = breakdown?.newBusiness?.outbound ?? ZERO_OB;
+  const npIb = breakdown?.newProduct?.inbound ?? ZERO_IB;
 
   if (cc.hasInbound) {
     rows.push({ label: 'HIS Volume', getMonthly: (m) => m.hisRequired, getQuarterly: (q) => q.hisRequired, fmt: formatNumber, metricType: 'count' });
@@ -41,39 +44,39 @@ function buildRows(
     rows.push({ label: 'Inbound Qualified Pipeline $', monthlyLabel: 'IB Qualified Pipeline', getMonthly: (m) => m.inboundPipelineCreated, getQuarterly: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull, metricType: 'currency' });
     rows.push({ label: 'Win Rate', getMonthly: () => ib.winRate, getQuarterly: () => ib.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
     rows.push({ label: 'ACV', getMonthly: () => ib.acv, getQuarterly: () => ib.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Sales Cycle', getMonthly: () => ib.salesCycleMonths, getQuarterly: () => ib.salesCycleMonths, fmt: (v) => `${(v ?? 0).toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
     rows.push({ label: 'Inbound Closed Won', getMonthly: (m) => m.inboundClosedWon, getQuarterly: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, metricType: 'currency', isClosedWon: true });
-    rows.push({ label: 'Inbound New Customers', getMonthly: (m) => m.inboundDeals, getQuarterly: (q) => q.months.reduce((s, m2) => s + m2.inboundDeals, 0), fmt: formatNumber, metricType: 'count' });
+    rows.push({ label: 'Inbound New Customers', getMonthly: (m) => m.inboundDeals, getQuarterly: (q) => (q.months || []).reduce((s, m2) => s + m2.inboundDeals, 0), fmt: formatNumber, metricType: 'count' });
   }
 
   if (cc.hasOutbound) {
     rows.push({ label: 'Outbound Qualified Pipeline $', monthlyLabel: 'OB Qualified Pipeline', getMonthly: (m) => m.outboundPipelineCreated, getQuarterly: (q) => q.outboundPipelineCreated, fmt: formatCurrencyFull, metricType: 'currency' });
     rows.push({ label: 'Win Rate', getMonthly: () => ob.winRate, getQuarterly: () => ob.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
     rows.push({ label: 'ACV', getMonthly: () => ob.acv, getQuarterly: () => ob.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Sales Cycle', getMonthly: () => ob.salesCycleMonths, getQuarterly: () => ob.salesCycleMonths, fmt: (v) => `${(v ?? 0).toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
     rows.push({ label: 'Outbound Closed Won', getMonthly: (m) => m.outboundClosedWon, getQuarterly: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, metricType: 'currency', isClosedWon: true });
-    rows.push({ label: 'Outbound New Customers', getMonthly: (m) => m.outboundDeals, getQuarterly: (q) => q.months.reduce((s, m2) => s + m2.outboundDeals, 0), fmt: formatNumber, metricType: 'count' });
+    rows.push({ label: 'Outbound New Customers', getMonthly: (m) => m.outboundDeals, getQuarterly: (q) => (q.months || []).reduce((s, m2) => s + m2.outboundDeals, 0), fmt: formatNumber, metricType: 'count' });
   }
 
   if (cc.hasNewProduct) {
     rows.push({ label: 'NP Inbound Qualified Pipeline $', monthlyLabel: 'NP IB Qual. Pipeline', getMonthly: (m) => m.newProductInboundPipelineCreated, getQuarterly: (q) => q.newProductInboundPipelineCreated, fmt: formatCurrencyFull, metricType: 'currency' });
     rows.push({ label: 'Win Rate', getMonthly: () => npIb.winRate, getQuarterly: () => npIb.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
     rows.push({ label: 'ACV', getMonthly: () => npIb.acv, getQuarterly: () => npIb.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Sales Cycle', getMonthly: () => npIb.salesCycleMonths, getQuarterly: () => npIb.salesCycleMonths, fmt: (v) => `${(v ?? 0).toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
     rows.push({ label: 'New Product Inbound Won', monthlyLabel: 'NP Inbound Won', getMonthly: (m) => m.newProductInboundClosedWon, getQuarterly: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, metricType: 'currency', isClosedWon: true });
-    rows.push({ label: 'New Product Inbound Customers', monthlyLabel: 'NP Inbound Customers', getMonthly: (m) => m.newProductInboundDeals, getQuarterly: (q) => q.months.reduce((s, m2) => s + m2.newProductInboundDeals, 0), fmt: formatNumber, metricType: 'count' });
+    rows.push({ label: 'New Product Inbound Customers', monthlyLabel: 'NP Inbound Customers', getMonthly: (m) => m.newProductInboundDeals, getQuarterly: (q) => (q.months || []).reduce((s, m2) => s + m2.newProductInboundDeals, 0), fmt: formatNumber, metricType: 'count' });
   }
 
   if (cc.hasExpansion) {
-    rows.push({ label: 'Expansion Pipeline $', getMonthly: () => breakdown.expansion.pipelineMonthly, getQuarterly: () => breakdown.expansion.pipelineMonthly, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Expansion Win Rate', getMonthly: () => breakdown.expansion.winRate, getQuarterly: () => breakdown.expansion.winRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Expansion ACV', getMonthly: () => breakdown.expansion.acv, getQuarterly: () => breakdown.expansion.acv, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
-    rows.push({ label: 'Expansion Sales Cycle', getMonthly: () => breakdown.expansion.salesCycleMonths, getQuarterly: () => breakdown.expansion.salesCycleMonths, fmt: (v) => `${v.toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Pipeline $', getMonthly: () => breakdown.expansion?.pipelineMonthly ?? 0, getQuarterly: () => breakdown.expansion?.pipelineMonthly ?? 0, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Win Rate', getMonthly: () => breakdown.expansion?.winRate ?? 0, getQuarterly: () => breakdown.expansion?.winRate ?? 0, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion ACV', getMonthly: () => breakdown.expansion?.acv ?? 0, getQuarterly: () => breakdown.expansion?.acv ?? 0, fmt: formatCurrencyFull, metricType: 'currency', isSecondary: true, isConstant: true });
+    rows.push({ label: 'Expansion Sales Cycle', getMonthly: () => breakdown.expansion?.salesCycleMonths ?? 0, getQuarterly: () => breakdown.expansion?.salesCycleMonths ?? 0, fmt: (v) => `${(v ?? 0).toFixed(1)} mo`, metricType: 'count', isSecondary: true, isConstant: true });
     rows.push({ label: 'Expansion Revenue', getMonthly: (m) => m.expansionRevenue, getQuarterly: (q) => q.expansionRevenue, fmt: formatCurrencyFull, metricType: 'currency', isPurple: true });
   }
 
   if (cc.hasChurn) {
-    rows.push({ label: 'Churn Rate', getMonthly: () => breakdown.churn.monthlyChurnRate, getQuarterly: () => breakdown.churn.monthlyChurnRate, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true, isChurn: true });
+    rows.push({ label: 'Churn Rate', getMonthly: () => breakdown?.churn?.monthlyChurnRate ?? 0, getQuarterly: () => breakdown?.churn?.monthlyChurnRate ?? 0, fmt: formatPercent, metricType: 'percent', isSecondary: true, isConstant: true, isChurn: true });
     rows.push({ label: 'Churn Revenue', getMonthly: (m) => m.churnRevenue, getQuarterly: (q) => q.churnRevenue, fmt: formatCurrencyFull, metricType: 'currency', isChurn: true, isPurple: true });
   }
 
@@ -151,12 +154,56 @@ function getQuarterStatus(quarter: string, cm: number): QuarterStatus {
   return 'mixed';
 }
 
+// ── Error boundary ───────────────────────────────────────────
+
+class GapAnalysisErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
+          <h3 className="text-lg font-semibold text-red-800 mb-2">Gap Analysis encountered an error</h3>
+          <p className="text-sm text-red-600 mb-3">{this.state.error?.message || 'Unknown error'}</p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ── Main component ───────────────────────────────────────────
 
 export default function GapAnalysis() {
+  return (
+    <GapAnalysisErrorBoundary>
+      <GapAnalysisInner />
+    </GapAnalysisErrorBoundary>
+  );
+}
+
+function GapAnalysisInner() {
   const { plan } = useGTMPlan();
   const [viewMode, setViewMode] = useState<ViewMode>('quarterly');
-  const cc = plan.channelConfig;
+  const cc = plan.channelConfig ?? {
+    hasInbound: true, hasOutbound: true, hasNewProduct: true, hasExpansion: true, hasChurn: true,
+    hasInboundHistory: true, hasOutboundHistory: true, hasNewProductHistory: true,
+    hasEmergingInbound: false, hasEmergingOutbound: false, hasEmergingNewProduct: false,
+  };
   const isInYear = plan.planningMode === 'in-year';
   const cm = plan.currentMonth ?? 1;
 
