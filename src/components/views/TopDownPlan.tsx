@@ -2,7 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsightsNormalized, getInsightsForMonth } from '@/lib/engine';
+import { runModel, runTopDownModel, runModelWithActuals, capModelAtTarget, applyChannelConfig, calculatePipelineDeadlines, buildPipelineTimingMap, applyMarketInsightsNormalized, getInsightsForMonth } from '@/lib/engine';
+import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName } from '@/lib/format';
 import RevenueTable from '@/components/shared/RevenueTable';
 import type { RampConfig, PipelineDeadline } from '@/lib/types';
@@ -49,34 +50,55 @@ export default function TopDownPlan() {
     [plan.targets, cc],
   );
 
-  const planModel = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
-    [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
+  // Compute channel dollar targets from allocation % × grossTarget
+  const alloc = plan.targetAllocations;
+  const expectedAnnualChurn = cc.hasChurn
+    ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
+    : 0;
+  const newARR = plan.targetARR - plan.startingARR;
+  const grossTarget = newARR + expectedAnnualChurn;
+
+  const channelTargets: ChannelDollarTargets = useMemo(() => ({
+    inbound: grossTarget * ((alloc?.inbound || 0) / 100),
+    outbound: grossTarget * ((alloc?.outbound || 0) / 100),
+    expansion: grossTarget * ((alloc?.expansion || 0) / 100),
+    newProduct: grossTarget * ((alloc?.newProduct || 0) / 100),
+    emergingInbound: grossTarget * ((alloc?.emergingInbound || 0) / 100),
+    emergingOutbound: grossTarget * ((alloc?.emergingOutbound || 0) / 100),
+    emergingNewProduct: grossTarget * ((alloc?.emergingNewProduct || 0) / 100),
+  }), [grossTarget, alloc]);
+
+  const hasAllocations = useMemo(
+    () => Object.values(channelTargets).some((v) => v > 0),
+    [channelTargets],
   );
 
-  const uncappedModel = useMemo(() => {
-    if (isInYear && hasActuals) {
-      return runModelWithActuals(
-        effectiveTargets, plan.seasonality, DEFAULT_RAMP,
-        plan.startingARR, plan.existingPipeline,
-        plan.detailedActuals, plan.currentMonth,
-      );
-    }
-    return planModel;
-  }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, planModel]);
-
-  const cappedModel = useMemo(
-    () => capModelAtTarget(uncappedModel, plan.targetARR, plan.startingARR),
-    [uncappedModel, plan.targetARR, plan.startingARR],
+  // Top-down model when allocations are set; fall back to bottom-up + cap
+  const topDownModel = useMemo(
+    () => hasAllocations
+      ? runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline)
+      : null,
+    [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
   );
+
+  // Fallback bottom-up model (used when allocations aren't set yet)
+  const bottomUpModel = useMemo(() => {
+    if (topDownModel) return null; // skip computation when top-down is active
+    const raw = (isInYear && hasActuals)
+      ? runModelWithActuals(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth)
+      : runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
+    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
+  }, [topDownModel, isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.targetARR]);
+
+  const baseModel = topDownModel ?? bottomUpModel!;
 
   // Apply market insights if enabled — normalized so total ARR still equals targetARR
   const model = useMemo(() => {
     if (includeInsights && hasInsights) {
-      return applyMarketInsightsNormalized(cappedModel.monthly, enabledInsights, plan.startingARR, plan.targetARR, cm, plan.planningMode);
+      return applyMarketInsightsNormalized(baseModel.monthly, enabledInsights, plan.startingARR, plan.targetARR, cm, plan.planningMode);
     }
-    return cappedModel;
-  }, [cappedModel, includeInsights, hasInsights, enabledInsights, plan.startingARR, plan.targetARR]);
+    return baseModel;
+  }, [baseModel, includeInsights, hasInsights, enabledInsights, plan.startingARR, plan.targetARR]);
 
   // Pipeline deadlines
   const deadlines = useMemo(
@@ -151,8 +173,8 @@ export default function TopDownPlan() {
         planningMode={plan.planningMode}
         currentMonth={plan.currentMonth}
         detailedActuals={plan.detailedActuals}
-        planMonthly={isInYear && hasActuals ? planModel.monthly : undefined}
-        planQuarterly={isInYear && hasActuals ? planModel.quarterly : undefined}
+        planMonthly={isInYear && hasActuals ? baseModel.monthly : undefined}
+        planQuarterly={isInYear && hasActuals ? baseModel.quarterly : undefined}
         pipelineTimingMap={pipelineTimingMap}
         marketInsights={includeInsights ? enabledInsights : undefined}
         channelConfig={cc}

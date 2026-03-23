@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
 import {
   runModel,
+  runTopDownModel,
   runModelWithActuals,
   runModelWithBets,
   capModelAtTarget,
@@ -11,6 +12,7 @@ import {
   computeChannelMix,
   applyStrategicBets,
 } from '@/lib/engine';
+import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent } from '@/lib/format';
 import BetSelector from '@/components/strategic/BetSelector';
 import BetCard from '@/components/strategic/BetCard';
@@ -37,22 +39,40 @@ export default function StrategicBets() {
     [plan.historical, plan.channelConfig],
   );
 
-  // ── Target model — matches TopDownPlan exactly (with cap) ──
-  const uncappedTargetModel = useMemo(() => {
-    if (isInYear && hasActuals) {
-      return runModelWithActuals(
-        effectiveTargets, plan.seasonality, DEFAULT_RAMP,
-        plan.startingARR, plan.existingPipeline,
-        plan.detailedActuals!, cm,
-      );
-    }
-    return runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
-  }, [isInYear, hasActuals, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, cm]);
+  // ── Target model — matches TopDownPlan (allocation-driven when available) ──
+  const alloc = plan.targetAllocations;
+  const cc = plan.channelConfig;
+  const expectedAnnualChurn = cc.hasChurn
+    ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
+    : 0;
+  const newARR = plan.targetARR - plan.startingARR;
+  const grossTarget = newARR + expectedAnnualChurn;
 
-  const targetModel = useMemo(
-    () => capModelAtTarget(uncappedTargetModel, plan.targetARR, plan.startingARR),
-    [uncappedTargetModel, plan.targetARR, plan.startingARR],
+  const channelTargets: ChannelDollarTargets = useMemo(() => ({
+    inbound: grossTarget * ((alloc?.inbound || 0) / 100),
+    outbound: grossTarget * ((alloc?.outbound || 0) / 100),
+    expansion: grossTarget * ((alloc?.expansion || 0) / 100),
+    newProduct: grossTarget * ((alloc?.newProduct || 0) / 100),
+    emergingInbound: grossTarget * ((alloc?.emergingInbound || 0) / 100),
+    emergingOutbound: grossTarget * ((alloc?.emergingOutbound || 0) / 100),
+    emergingNewProduct: grossTarget * ((alloc?.emergingNewProduct || 0) / 100),
+  }), [grossTarget, alloc]);
+
+  const hasAllocations = useMemo(
+    () => Object.values(channelTargets).some((v) => v > 0),
+    [channelTargets],
   );
+
+  const targetModel = useMemo(() => {
+    if (hasAllocations) {
+      return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+    }
+    // Fallback: bottom-up + cap
+    const raw = (isInYear && hasActuals)
+      ? runModelWithActuals(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline, plan.detailedActuals!, cm)
+      : runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
+    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
+  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, isInYear, hasActuals, plan.detailedActuals, cm, plan.targetARR]);
 
   // ── Status quo model — historical inputs, flat seasonality, no ramp ──
   const flatSeasonality = useMemo(() => ({
@@ -101,9 +121,7 @@ export default function StrategicBets() {
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
 
   // ── Target allocation context ──
-  const alloc = plan.targetAllocations;
-  const neededNewARR = plan.targetARR - plan.startingARR;
-  const showAllocContext = (plan.targetAllocationMode === 'manual' || plan.targetAllocationMode === 'historical') && neededNewARR > 0;
+  const showAllocContext = (plan.targetAllocationMode === 'manual' || plan.targetAllocationMode === 'historical') && newARR > 0;
 
   return (
     <div className="space-y-6">
@@ -117,27 +135,27 @@ export default function StrategicBets() {
           <div className="flex flex-wrap gap-3 text-xs">
             {alloc.inbound > 0 && (
               <span className="bg-white border border-blue-200 rounded px-2 py-1 text-blue-800">
-                Inbound {formatCurrencyFull(Math.round(neededNewARR * alloc.inbound / 100))} ({alloc.inbound.toFixed(0)}%)
+                Inbound {formatCurrencyFull(Math.round(grossTarget * alloc.inbound / 100))} ({alloc.inbound.toFixed(0)}%)
               </span>
             )}
             {alloc.outbound > 0 && (
               <span className="bg-white border border-blue-200 rounded px-2 py-1 text-blue-800">
-                Outbound {formatCurrencyFull(Math.round(neededNewARR * alloc.outbound / 100))} ({alloc.outbound.toFixed(0)}%)
+                Outbound {formatCurrencyFull(Math.round(grossTarget * alloc.outbound / 100))} ({alloc.outbound.toFixed(0)}%)
               </span>
             )}
             {alloc.expansion > 0 && (
               <span className="bg-white border border-blue-200 rounded px-2 py-1 text-purple-800">
-                Expansion {formatCurrencyFull(Math.round(neededNewARR * alloc.expansion / 100))} ({alloc.expansion.toFixed(0)}%)
+                Expansion {formatCurrencyFull(Math.round(grossTarget * alloc.expansion / 100))} ({alloc.expansion.toFixed(0)}%)
               </span>
             )}
             {alloc.churn > 0 && (
               <span className="bg-white border border-blue-200 rounded px-2 py-1 text-red-800">
-                Churn Budget {formatCurrencyFull(Math.round(neededNewARR * alloc.churn / 100))} ({alloc.churn.toFixed(0)}%)
+                Churn Budget {formatCurrencyFull(Math.round(grossTarget * alloc.churn / 100))} ({alloc.churn.toFixed(0)}%)
               </span>
             )}
             {alloc.newProduct > 0 && (
               <span className="bg-white border border-blue-200 rounded px-2 py-1 text-green-800">
-                New Product {formatCurrencyFull(Math.round(neededNewARR * alloc.newProduct / 100))} ({alloc.newProduct.toFixed(0)}%)
+                New Product {formatCurrencyFull(Math.round(grossTarget * alloc.newProduct / 100))} ({alloc.newProduct.toFixed(0)}%)
               </span>
             )}
           </div>

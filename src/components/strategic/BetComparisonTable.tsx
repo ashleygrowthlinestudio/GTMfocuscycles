@@ -288,8 +288,8 @@ export default function BetComparisonTable({
 
       {/* Progress bar — amber = SQ baseline, blue = incremental bet impact on top */}
       <div className="bg-gray-100 rounded-full h-3 relative overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, (betsEndARR / targetARR) * 100)}%` }} />
-        <div className="absolute inset-y-0 left-0 bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(100, (sqEndARR / targetARR) * 100)}%` }} />
+        <div className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all" style={{ width: `${targetARR > 0 ? Math.min(100, (betsEndARR / targetARR) * 100) : 0}%` }} />
+        <div className="absolute inset-y-0 left-0 bg-amber-400 rounded-full transition-all" style={{ width: `${targetARR > 0 ? Math.min(100, (sqEndARR / targetARR) * 100) : 0}%` }} />
       </div>
       <div className="flex justify-between text-xs text-gray-500">
         <span>Status Quo: {formatCurrencyFull(sqEndARR)}</span>

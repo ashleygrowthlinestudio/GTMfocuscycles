@@ -2,7 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, runModelWithBets, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import { runModel, runTopDownModel, runModelWithBets, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
 import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, RampConfig } from '@/lib/types';
 
@@ -33,19 +34,33 @@ export default function ExecutiveSummary() {
   const cm = plan.currentMonth ?? 1;
   const [goalsView, setGoalsView] = useState<ViewMode>('quarterly');
 
-  // Plan model (Revenue Targets)
+  // Plan model (Revenue Targets) — allocation-driven when available
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
   );
-  const uncappedPlanModel = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
-    [effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline],
-  );
-  const planModel = useMemo(
-    () => capModelAtTarget(uncappedPlanModel, plan.targetARR, plan.startingARR),
-    [uncappedPlanModel, plan.targetARR, plan.startingARR],
-  );
+  const alloc = plan.targetAllocations;
+  const expectedAnnualChurn = cc.hasChurn
+    ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
+    : 0;
+  const execGrossTarget = (plan.targetARR - plan.startingARR) + expectedAnnualChurn;
+  const channelTargets: ChannelDollarTargets = useMemo(() => ({
+    inbound: execGrossTarget * ((alloc?.inbound || 0) / 100),
+    outbound: execGrossTarget * ((alloc?.outbound || 0) / 100),
+    expansion: execGrossTarget * ((alloc?.expansion || 0) / 100),
+    newProduct: execGrossTarget * ((alloc?.newProduct || 0) / 100),
+    emergingInbound: execGrossTarget * ((alloc?.emergingInbound || 0) / 100),
+    emergingOutbound: execGrossTarget * ((alloc?.emergingOutbound || 0) / 100),
+    emergingNewProduct: execGrossTarget * ((alloc?.emergingNewProduct || 0) / 100),
+  }), [execGrossTarget, alloc]);
+  const hasAllocations = useMemo(() => Object.values(channelTargets).some((v) => v > 0), [channelTargets]);
+  const planModel = useMemo(() => {
+    if (hasAllocations) {
+      return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+    }
+    const raw = runModel(effectiveTargets, plan.seasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline);
+    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
+  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.targetARR]);
 
   // Status Quo model (historical trend)
   const flatSeasonality = useMemo(() => ({

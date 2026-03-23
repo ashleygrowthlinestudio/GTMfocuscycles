@@ -756,6 +756,134 @@ export function runModel(
   };
 }
 
+// ── Top-down model (allocation-driven) ───────────────────────
+
+export interface ChannelDollarTargets {
+  inbound: number;
+  outbound: number;
+  expansion: number;
+  newProduct: number;
+  emergingInbound: number;
+  emergingOutbound: number;
+  emergingNewProduct: number;
+}
+
+/**
+ * Top-down model: takes ANNUAL closed-won dollar targets per channel
+ * (derived from target allocation %) and back-calculates the funnel
+ * metrics (pipeline, HIS, deals) needed each month using the supplied
+ * conversion rates and seasonality weights.
+ *
+ * Unlike runModel (bottom-up), this does NOT apply a pipeline waterfall
+ * delay — it shows what is NEEDED each month to hit the revenue target.
+ */
+export function runTopDownModel(
+  channelTargets: ChannelDollarTargets,
+  rates: RevenueBreakdown,
+  seasonality: SeasonalityWeights,
+  startingARR: number,
+  existingPipeline: ExistingPipeline,
+): ModelRun {
+  // Combine emerging into core channels for MonthlyResult shape
+  const annualIbCW = (channelTargets.inbound || 0) + (channelTargets.emergingInbound || 0);
+  const annualObCW = (channelTargets.outbound || 0) + (channelTargets.emergingOutbound || 0);
+  const annualExpRev = channelTargets.expansion || 0;
+  const annualNpCW = (channelTargets.newProduct || 0) + (channelTargets.emergingNewProduct || 0);
+
+  // Seasonality normalisation — each month's share of the annual total
+  const weights: number[] = [];
+  let totalWeight = 0;
+  for (let i = 0; i < 12; i++) {
+    const w = getSeasonalityWeight((i + 1) as Month, seasonality);
+    weights.push(w);
+    totalWeight += w;
+  }
+  if (totalWeight <= 0) totalWeight = 12; // fallback — flat
+
+  // Safe rate accessors (avoid division by zero)
+  const ibWR = rates.newBusiness.inbound.winRate || 0;
+  const ibH2P = rates.newBusiness.inbound.hisToPipelineRate || 0;
+  const ibAcv = rates.newBusiness.inbound.acv || 1;
+  const obWR = rates.newBusiness.outbound.winRate || 0;
+  const obAcv = rates.newBusiness.outbound.acv || 1;
+  const npIbWR = rates.newProduct.inbound.winRate || 0;
+  const npIbAcv = rates.newProduct.inbound.acv || 1;
+  const expWR = rates.expansion.winRate || 0;
+  const expAcv = rates.expansion.acv || 1;
+  const churnRate = rates.churn.monthlyChurnRate || 0;
+
+  const results: MonthlyResult[] = [];
+  let currentARR = startingARR;
+
+  for (let i = 0; i < 12; i++) {
+    const month = (i + 1) as Month;
+    const monthFrac = weights[i] / totalWeight;
+
+    // ── Closed Won targets for this month ──
+    let ibCW = annualIbCW * monthFrac;
+    let obCW = annualObCW * monthFrac;
+    const npIbCW = annualNpCW * monthFrac;
+    const expRev = annualExpRev * monthFrac;
+
+    // Existing pipeline closes in its expected month
+    if (month === existingPipeline.expectedCloseMonth) {
+      ibCW += (existingPipeline.inboundCore || 0) * (existingPipeline.winRate || 0);
+      obCW += (existingPipeline.outboundCore || 0) * (existingPipeline.winRate || 0);
+    }
+
+    // ── Back-calculate pipeline needed ──
+    const ibPipeline = ibWR > 0 ? ibCW / ibWR : 0;
+    const obPipeline = obWR > 0 ? obCW / obWR : 0;
+    const npIbPipeline = npIbWR > 0 ? npIbCW / npIbWR : 0;
+    const expPipeline = expWR > 0 ? expRev / expWR : 0;
+
+    // ── Back-calculate HIS needed (inbound only) ──
+    const hisRequired = (ibH2P > 0 && ibAcv > 0) ? ibPipeline / (ibH2P * ibAcv) : 0;
+
+    // ── Deals ──
+    const ibDeals = ibAcv > 0 ? ibCW / ibAcv : 0;
+    const obDeals = obAcv > 0 ? obCW / obAcv : 0;
+    const npIbDeals = npIbAcv > 0 ? npIbCW / npIbAcv : 0;
+
+    // ── Churn ── (rate-based, not target-allocated)
+    const churnRevenue = -(currentARR * churnRate);
+
+    // ── Totals ──
+    const totalNewARR = ibCW + obCW + npIbCW + expRev + churnRevenue;
+    currentARR += totalNewARR;
+
+    results.push({
+      month,
+      inboundPipelineCreated: ibPipeline,
+      outboundPipelineCreated: obPipeline,
+      newProductInboundPipelineCreated: npIbPipeline,
+      newProductOutboundPipelineCreated: 0,
+      hisRequired,
+      newProductHisRequired: 0,
+      inboundClosedWon: ibCW,
+      outboundClosedWon: obCW,
+      newProductInboundClosedWon: npIbCW,
+      newProductOutboundClosedWon: 0,
+      expansionRevenue: expRev,
+      churnRevenue,
+      totalNewARR,
+      cumulativeARR: currentARR,
+      inboundDeals: ibDeals,
+      outboundDeals: obDeals,
+      newProductInboundDeals: npIbDeals,
+      newProductOutboundDeals: 0,
+    });
+  }
+
+  const quarterly = rollUpToQuarters(results);
+  return {
+    monthly: results,
+    quarterly,
+    endingARR: results[11]?.cumulativeARR ?? startingARR,
+    totalNewARRAdded: results.reduce((s, m) => s + m.totalNewARR, 0),
+  };
+}
+
 // ── Cap model at target ARR ──────────────────────────────────
 
 export function capModelAtTarget(model: ModelRun, targetARR: number, startingARR: number): ModelRun {

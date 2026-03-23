@@ -23,6 +23,12 @@ interface RevenueTableProps {
   channelConfig?: ChannelConfig;
 }
 
+/** Coerce any NaN / Infinity / undefined to 0 */
+function safeNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 type ViewMode = 'quarterly' | 'monthly';
 
 export default function RevenueTable({ monthly, quarterly, startingARR, label, targets, planningMode, currentMonth, detailedActuals, planMonthly, planQuarterly, pipelineTimingMap, bets, marketInsights, channelConfig }: RevenueTableProps) {
@@ -290,12 +296,14 @@ function buildRows(targets?: RevenueBreakdown, cc?: ChannelConfig): TableRow[] {
 /* ── Growth formatting (QoQ / MoM) ───────────────────────── */
 
 function formatGrowth(current: number, previous: number, fmt: (v: number) => string): { text: string; color: string } {
-  const delta = current - previous;
-  if (previous === 0 && current === 0) return { text: '—', color: 'text-gray-300' };
+  const c = safeNum(current);
+  const p = safeNum(previous);
+  const delta = c - p;
+  if (p === 0 && c === 0) return { text: '—', color: 'text-gray-300' };
   const sign = delta >= 0 ? '+' : '-';
   const arrow = delta >= 0 ? '↑' : '↓';
-  const pctChange = previous !== 0 ? Math.abs(delta / previous) * 100 : 0;
-  const pctStr = previous !== 0 ? ` (${sign}${pctChange.toFixed(0)}%)` : '';
+  const pctChange = p !== 0 ? Math.abs(delta / p) * 100 : 0;
+  const pctStr = p !== 0 && pctChange < 10000 ? ` (${sign}${pctChange.toFixed(0)}%)` : '';
   return {
     text: `${arrow} ${sign}${fmt(Math.abs(delta))}${pctStr}`,
     color: delta >= 0 ? 'text-green-600' : 'text-red-500',

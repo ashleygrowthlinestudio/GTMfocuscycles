@@ -2,7 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runModel, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import { runModel, runTopDownModel, capModelAtTarget, applyChannelConfig } from '@/lib/engine';
+import type { ChannelDollarTargets } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
 import type { RevenueBreakdown, MonthlyResult, QuarterlyResult, Month } from '@/lib/types';
 
@@ -207,19 +208,31 @@ function GapAnalysisInner() {
   const isInYear = plan.planningMode === 'in-year';
   const cm = plan.currentMonth ?? 1;
 
-  // Plan model (target projections)
+  // Plan model (target projections) — allocation-driven when available
   const effectiveTargets = useMemo(
     () => applyChannelConfig(plan.targets, cc, 'targets'),
     [plan.targets, cc],
   );
-  const uncappedPlanModel = useMemo(
-    () => runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline),
-    [effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline],
-  );
-  const planModel = useMemo(
-    () => capModelAtTarget(uncappedPlanModel, plan.targetARR, plan.startingARR),
-    [uncappedPlanModel, plan.targetARR, plan.startingARR],
-  );
+  const alloc = plan.targetAllocations;
+  const gapExpChurn = cc.hasChurn ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12 : 0;
+  const gapGrossTarget = (plan.targetARR - plan.startingARR) + gapExpChurn;
+  const gapChannelTargets: ChannelDollarTargets = useMemo(() => ({
+    inbound: gapGrossTarget * ((alloc?.inbound || 0) / 100),
+    outbound: gapGrossTarget * ((alloc?.outbound || 0) / 100),
+    expansion: gapGrossTarget * ((alloc?.expansion || 0) / 100),
+    newProduct: gapGrossTarget * ((alloc?.newProduct || 0) / 100),
+    emergingInbound: gapGrossTarget * ((alloc?.emergingInbound || 0) / 100),
+    emergingOutbound: gapGrossTarget * ((alloc?.emergingOutbound || 0) / 100),
+    emergingNewProduct: gapGrossTarget * ((alloc?.emergingNewProduct || 0) / 100),
+  }), [gapGrossTarget, alloc]);
+  const gapHasAlloc = useMemo(() => Object.values(gapChannelTargets).some((v) => v > 0), [gapChannelTargets]);
+  const planModel = useMemo(() => {
+    if (gapHasAlloc) {
+      return runTopDownModel(gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
+    }
+    const raw = runModel(effectiveTargets, plan.seasonality, plan.ramp, plan.startingARR, plan.existingPipeline);
+    return capModelAtTarget(raw, plan.targetARR, plan.startingARR);
+  }, [gapHasAlloc, gapChannelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline, plan.ramp, plan.targetARR]);
 
   // Status Quo model (historical trend projection)
   const flatSeasonality = useMemo(() => ({
