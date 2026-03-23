@@ -92,16 +92,24 @@ function computeHistoricalAllocations(
     totalNp += q.newProductClosedWon;
   }
 
-  // Gross = positive channels only; churn is expressed as % of gross
+  // Sum only ACTIVE channels so percentages normalize to 100%
+  const activeTotal =
+    (cc.hasInbound ? totalIb : 0) +
+    (cc.hasOutbound ? totalOb : 0) +
+    (cc.hasExpansion ? totalExp : 0) +
+    (cc.hasNewProduct ? totalNp : 0);
+
+  if (activeTotal === 0) return zero;
+
+  // Gross total (all channels) for churn % baseline
   const grossTotal = totalIb + totalOb + totalExp + totalNp;
-  if (grossTotal === 0) return zero;
 
   return {
-    inbound: cc.hasInbound ? Math.round((totalIb / grossTotal) * 10000) / 100 : 0,
-    outbound: cc.hasOutbound ? Math.round((totalOb / grossTotal) * 10000) / 100 : 0,
-    expansion: cc.hasExpansion ? Math.round((totalExp / grossTotal) * 10000) / 100 : 0,
-    churn: cc.hasChurn ? Math.round((totalChurn / grossTotal) * 10000) / 100 : 0,
-    newProduct: cc.hasNewProduct ? Math.round((totalNp / grossTotal) * 10000) / 100 : 0,
+    inbound: cc.hasInbound ? Math.round((totalIb / activeTotal) * 10000) / 100 : 0,
+    outbound: cc.hasOutbound ? Math.round((totalOb / activeTotal) * 10000) / 100 : 0,
+    expansion: cc.hasExpansion ? Math.round((totalExp / activeTotal) * 10000) / 100 : 0,
+    churn: cc.hasChurn && grossTotal > 0 ? Math.round((totalChurn / grossTotal) * 10000) / 100 : 0,
+    newProduct: cc.hasNewProduct ? Math.round((totalNp / activeTotal) * 10000) / 100 : 0,
     emergingInbound: 0,
     emergingOutbound: 0,
     emergingNewProduct: 0,
@@ -174,6 +182,7 @@ function TargetAllocation({
           <div>
             <p className="text-xs text-gray-500 mb-3">
               Allocations based on your last {filledQuarters} quarter{filledQuarters !== 1 ? 's' : ''} of historical data.
+              {' '}Percentages normalized to 100% across active channels.
             </p>
             <div className="space-y-2">
               {activePositive.map((ch) => {
@@ -181,7 +190,10 @@ function TargetAllocation({
                 const amt = newARR * (pct / 100);
                 return (
                   <div key={ch.key} className="flex items-center justify-between py-1.5 px-3 rounded bg-gray-50">
-                    <span className="text-sm font-medium text-gray-700">{ch.label}</span>
+                    <span className="text-sm font-medium text-gray-700">
+                      {ch.label}
+                      {pct === 0 && <span className="ml-2 text-xs text-gray-400 italic">No historical data</span>}
+                    </span>
                     <div className="flex items-center gap-4">
                       <span className="text-sm text-gray-500 w-16 text-right">{pct.toFixed(1)}%</span>
                       <span className="text-sm font-semibold text-gray-900 w-28 text-right">
@@ -194,26 +206,42 @@ function TargetAllocation({
               {/* Total row — historical */}
               {(() => {
                 const histGross = activePositive.reduce((s, ch) => s + historicalAlloc[ch.key], 0);
+                const netNewARR = newARR - expectedAnnualChurn;
                 return (
-                  <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
-                    <span className="text-sm font-semibold text-gray-700">Total</span>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-semibold text-gray-700 w-16 text-right">
-                        {histGross.toFixed(1)}%
-                      </span>
+                  <>
+                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-200 px-3">
+                      <span className="text-sm font-semibold text-gray-700">Gross New ARR</span>
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm font-semibold text-green-700 w-16 text-right">
+                          {histGross.toFixed(1)}%
+                        </span>
+                        <span className="text-sm font-bold text-gray-900 w-28 text-right">
+                          {formatCurrency(newARR)}
+                        </span>
+                      </div>
+                    </div>
+                    {hasChurn && expectedAnnualChurn > 0 && (
+                      <div className="flex items-center justify-between px-3">
+                        <span className="text-sm text-red-600">Expected Churn</span>
+                        <span className="text-sm font-semibold text-red-600 w-28 text-right">
+                          &minus;{formatCurrency(expectedAnnualChurn)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between px-3 pt-1 border-t border-dashed border-gray-300">
+                      <span className="text-sm font-bold text-gray-900">Net New ARR</span>
                       <span className="text-sm font-bold text-gray-900 w-28 text-right">
-                        {formatCurrency(newARR)}
+                        {formatCurrency(netNewARR)}
                       </span>
                     </div>
-                  </div>
+                    {hasChurn && expectedAnnualChurn > 0 && (
+                      <p className="text-xs text-gray-500 px-3 mt-1">
+                        Gross {formatCurrency(newARR)} &mdash; Churn {formatCurrency(expectedAnnualChurn)} = Net {formatCurrency(netNewARR)} needed to reach target
+                      </p>
+                    )}
+                  </>
                 );
               })()}
-              {/* Expected churn — read-only */}
-              {hasChurn && expectedAnnualChurn > 0 && (
-                <p className="text-xs italic text-red-500 px-3 mt-2">
-                  Expected annual churn: ~{formatCurrency(expectedAnnualChurn)} (based on your churn rate &times; starting ARR)
-                </p>
-              )}
             </div>
           </div>
         )
@@ -288,9 +316,9 @@ function TargetAllocation({
             </div>
           )}
 
-          {/* Total row */}
+          {/* Total row — Gross */}
           <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-200 px-3">
-            <span className="text-sm font-semibold text-gray-700">Total</span>
+            <span className="text-sm font-semibold text-gray-700">Gross New ARR</span>
             <div className="flex items-center gap-4">
               <span className={`text-sm font-semibold w-16 text-right ${
                 grossValid ? 'text-green-700' : 'text-red-600'
@@ -304,12 +332,35 @@ function TargetAllocation({
             </div>
           </div>
 
-          {/* Expected churn — read-only */}
+          {/* Expected churn row */}
           {hasChurn && expectedAnnualChurn > 0 && (
-            <p className="text-xs italic text-red-500 px-3 mt-2">
-              Expected annual churn: ~{formatCurrency(expectedAnnualChurn)} (based on your churn rate &times; starting ARR)
-            </p>
+            <div className="flex items-center justify-between px-3">
+              <span className="text-sm text-red-600">Expected Churn</span>
+              <span className="text-sm font-semibold text-red-600 w-28 text-right">
+                &minus;{formatCurrency(expectedAnnualChurn)}
+              </span>
+            </div>
           )}
+
+          {/* Net New ARR row */}
+          {(() => {
+            const netNewARR = newARR - expectedAnnualChurn;
+            return (
+              <>
+                <div className="flex items-center justify-between px-3 pt-1 border-t border-dashed border-gray-300">
+                  <span className="text-sm font-bold text-gray-900">Net New ARR</span>
+                  <span className="text-sm font-bold text-gray-900 w-28 text-right">
+                    {formatCurrency(netNewARR)}
+                  </span>
+                </div>
+                {hasChurn && expectedAnnualChurn > 0 && (
+                  <p className="text-xs text-gray-500 px-3 mt-1">
+                    Gross {formatCurrency(newARR)} &mdash; Churn {formatCurrency(expectedAnnualChurn)} = Net {formatCurrency(netNewARR)} needed to reach target
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           {/* Validation */}
           {!grossValid && grossPct > 0 && (
