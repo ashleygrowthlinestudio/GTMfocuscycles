@@ -80,6 +80,7 @@ export interface Actuals {
 // ── Detailed monthly actuals (in-year reforecast) ────────────
 export interface MonthlyActuals {
   month: Month;
+  hisVolume: number;
   inboundPipelineCreated: number;
   outboundPipelineCreated: number;
   inboundClosedWon: number;

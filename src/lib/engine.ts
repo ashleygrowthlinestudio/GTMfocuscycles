@@ -896,12 +896,14 @@ export function runModelWithActuals(
         outboundPipelineCreated: obPipe,
         newProductInboundPipelineCreated: p.newProductInboundPipelineCreated,
         newProductOutboundPipelineCreated: p.newProductOutboundPipelineCreated,
-        hisRequired: or(
-          actual.hisToPipelineRate > 0 && ibAcv > 0
-            ? actual.inboundPipelineCreated / (actual.hisToPipelineRate * ibAcv)
-            : 0,
-          p.hisRequired,
-        ),
+        hisRequired: actual.hisVolume > 0
+          ? actual.hisVolume
+          : or(
+              actual.hisToPipelineRate > 0 && ibAcv > 0
+                ? actual.inboundPipelineCreated / (actual.hisToPipelineRate * ibAcv)
+                : 0,
+              p.hisRequired,
+            ),
         newProductHisRequired: p.newProductHisRequired,
         inboundClosedWon: ibCW,
         outboundClosedWon: obCW,
