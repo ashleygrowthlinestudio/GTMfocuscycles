@@ -246,8 +246,12 @@ export default function BetComparisonTable({
 
   const enabledBets = (bets || []).filter((b) => b.enabled);
 
-  // Build rows using planTargets for secondary rows (rates)
-  const rows = useMemo(() => buildComparisonRows(planTargets), [planTargets]);
+  // Build 3 separate row arrays so secondary rows show per-scenario rates
+  const sqRows = useMemo(() => buildComparisonRows(sqTargets), [sqTargets]);
+  const betsRows = useMemo(() => buildComparisonRows(betsTargets), [betsTargets]);
+  const targetRows = useMemo(() => buildComparisonRows(planTargets), [planTargets]);
+  // Primary rows (for labels, betMetrics matching, and non-secondary getters)
+  const rows = targetRows;
 
   return (
     <div className="space-y-4">
@@ -271,10 +275,10 @@ export default function BetComparisonTable({
         </div>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar — amber = SQ baseline, blue = incremental bet impact on top */}
       <div className="bg-gray-100 rounded-full h-3 relative overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(100, (sqEndARR / targetARR) * 100)}%` }} />
         <div className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, (betsEndARR / targetARR) * 100)}%` }} />
+        <div className="absolute inset-y-0 left-0 bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(100, (sqEndARR / targetARR) * 100)}%` }} />
       </div>
       <div className="flex justify-between text-xs text-gray-500">
         <span>Status Quo: {formatCurrencyFull(sqEndARR)}</span>
@@ -370,6 +374,9 @@ export default function BetComparisonTable({
               betsQ={withBetsQuarterly}
               target={targetQuarterly}
               rows={rows}
+              sqRows={sqRows}
+              betsRows={betsRows}
+              targetRows={targetRows}
               enabledBets={enabledBets}
               startingARR={startingARR}
             />
@@ -379,6 +386,9 @@ export default function BetComparisonTable({
               betsM={withBetsMonthly}
               target={targetMonthly}
               rows={rows}
+              sqRows={sqRows}
+              betsRows={betsRows}
+              targetRows={targetRows}
               enabledBets={enabledBets}
               startingARR={startingARR}
             />
@@ -392,10 +402,11 @@ export default function BetComparisonTable({
 // ── Full Quarterly Comparison ───────────────────────────────
 
 function FullQuarterlyComparison({
-  sq, betsQ, target, rows, enabledBets, startingARR,
+  sq, betsQ, target, rows, sqRows, betsRows, targetRows, enabledBets, startingARR,
 }: {
   sq: QuarterlyResult[]; betsQ: QuarterlyResult[]; target: QuarterlyResult[];
-  rows: TableRow[]; enabledBets: StrategicBet[]; startingARR: number;
+  rows: TableRow[]; sqRows: TableRow[]; betsRows: TableRow[]; targetRows: TableRow[];
+  enabledBets: StrategicBet[]; startingARR: number;
 }) {
   return (
     <table className="w-full text-xs">
@@ -421,6 +432,10 @@ function FullQuarterlyComparison({
         {rows.map((row, idx) => {
           const matchingBets = getBetsForRow(row, enabledBets);
           const hasBet = matchingBets.length > 0;
+          // Use per-scenario row for secondary/constant values
+          const sqRow = sqRows[idx] ?? row;
+          const betsRow = betsRows[idx] ?? row;
+          const tgtRow = targetRows[idx] ?? row;
 
           return (
             <tr key={`${row.label}-${idx}`} className={`border-b border-gray-100 ${rowBgClass(row, hasBet)}`}>
@@ -431,13 +446,14 @@ function FullQuarterlyComparison({
                 {row.label}
               </td>
               {[0, 1, 2, 3].map((qi) => {
-                const sqVal = row.getQuarterly(sq[qi]);
-                const betsVal = row.getQuarterly(betsQ[qi]);
-                const targetVal = row.getQuarterly(target[qi]);
+                const sqVal = sqRow.getQuarterly(sq[qi]);
+                const betsVal = betsRow.getQuarterly(betsQ[qi]);
+                const targetVal = tgtRow.getQuarterly(target[qi]);
+                const betsChanged = hasBet && sqVal !== betsVal;
                 return (
                   <React.Fragment key={qi}>
                     <td className="py-1 px-1 text-right text-amber-700 border-l border-gray-100">{row.fmt(sqVal)}</td>
-                    <td className={`py-1 px-1 text-right text-blue-700 ${hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
+                    <td className={`py-1 px-1 text-right text-blue-700 ${betsChanged ? 'font-semibold bg-blue-50' : hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
                     <td className="py-1 px-1 text-right text-gray-500">{row.fmt(targetVal)}</td>
                   </React.Fragment>
                 );
@@ -464,10 +480,11 @@ function FullQuarterlyComparison({
 // ── Full Monthly Comparison ─────────────────────────────────
 
 function FullMonthlyComparison({
-  sq, betsM, target, rows, enabledBets, startingARR,
+  sq, betsM, target, rows, sqRows, betsRows, targetRows, enabledBets, startingARR,
 }: {
   sq: MonthlyResult[]; betsM: MonthlyResult[]; target: MonthlyResult[];
-  rows: TableRow[]; enabledBets: StrategicBet[]; startingARR: number;
+  rows: TableRow[]; sqRows: TableRow[]; betsRows: TableRow[]; targetRows: TableRow[];
+  enabledBets: StrategicBet[]; startingARR: number;
 }) {
   return (
     <table className="w-full text-xs">
@@ -493,6 +510,9 @@ function FullMonthlyComparison({
         {rows.map((row, idx) => {
           const matchingBets = getBetsForRow(row, enabledBets);
           const hasBet = matchingBets.length > 0;
+          const sqRow = sqRows[idx] ?? row;
+          const betsRow = betsRows[idx] ?? row;
+          const tgtRow = targetRows[idx] ?? row;
 
           return (
             <tr key={`${row.monthlyLabel || row.label}-${idx}`} className={`border-b border-gray-100 ${rowBgClass(row, hasBet)}`}>
@@ -503,13 +523,14 @@ function FullMonthlyComparison({
                 {row.monthlyLabel || row.label}
               </td>
               {Array.from({ length: 12 }, (_, i) => {
-                const sqVal = row.getMonthly(sq[i]);
-                const betsVal = row.getMonthly(betsM[i]);
-                const targetVal = row.getMonthly(target[i]);
+                const sqVal = sqRow.getMonthly(sq[i]);
+                const betsVal = betsRow.getMonthly(betsM[i]);
+                const targetVal = tgtRow.getMonthly(target[i]);
+                const betsChanged = hasBet && sqVal !== betsVal;
                 return (
                   <React.Fragment key={i}>
                     <td className="py-1 px-0.5 text-right text-amber-700 border-l border-gray-100 text-[10px]">{row.fmt(sqVal)}</td>
-                    <td className={`py-1 px-0.5 text-right text-blue-700 text-[10px] ${hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
+                    <td className={`py-1 px-0.5 text-right text-blue-700 text-[10px] ${betsChanged ? 'font-semibold bg-blue-50' : hasBet ? 'font-medium' : ''}`}>{row.fmt(betsVal)}</td>
                     <td className="py-1 px-0.5 text-right text-gray-500 text-[10px]">{row.fmt(targetVal)}</td>
                   </React.Fragment>
                 );
