@@ -7,6 +7,7 @@ export type TabId = 'setup' | 'targets' | 'historical' | 'gap' | 'bets' | 'summa
 interface TabNavProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  setupIncomplete?: boolean;
 }
 
 const TABS: { id: TabId; label: string; description: string }[] = [
@@ -19,7 +20,7 @@ const TABS: { id: TabId; label: string; description: string }[] = [
   { id: 'methodology', label: '6. Methodology', description: 'How it works' },
 ];
 
-export default function TabNav({ activeTab, onTabChange }: TabNavProps) {
+export default function TabNav({ activeTab, onTabChange, setupIncomplete }: TabNavProps) {
   return (
     <div className="bg-white border-b border-gray-200">
       <div className="max-w-7xl mx-auto">
@@ -35,11 +36,14 @@ export default function TabNav({ activeTab, onTabChange }: TabNavProps) {
               }`}
             >
               <span
-                className={`block text-sm font-medium ${
+                className={`flex items-center gap-1.5 text-sm font-medium ${
                   activeTab === tab.id ? 'text-blue-700' : 'text-gray-700'
                 }`}
               >
                 {tab.label}
+                {tab.id === 'setup' && setupIncomplete && (
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="Allocation incomplete" />
+                )}
               </span>
               <span className="block text-xs text-gray-400 mt-0.5">{tab.description}</span>
             </button>

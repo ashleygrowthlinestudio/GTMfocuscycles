@@ -19,37 +19,43 @@ export default function Home() {
   const filledQuarters = (plan.historicalQuarters ?? []).filter(isQuarterFilled).length;
   const showHistoricalWarning = activeTab !== 'setup' && filledQuarters < 4;
 
-  // Allocation validation: block other tabs if manual mode and total != 100%
+  // Allocation validation (net-based: gross channels - churn = ARR gap)
   const allocations = plan.targetAllocations ?? { inbound: 0, outbound: 0, expansion: 0, churn: 0, newProduct: 0 };
   const cc = plan.channelConfig;
-  const allocTotal = useMemo(() => {
-    let total = 0;
-    if (cc.hasInbound) total += allocations.inbound || 0;
-    if (cc.hasOutbound) total += allocations.outbound || 0;
-    if (cc.hasExpansion) total += allocations.expansion || 0;
-    if (cc.hasChurn) total += allocations.churn || 0;
-    if (cc.hasNewProduct) total += allocations.newProduct || 0;
-    return total;
+  const newARR = (plan.targetARR ?? 0) - (plan.startingARR ?? 0);
+  const { grossPct, churnPct, hasStartedAllocating } = useMemo(() => {
+    let gross = 0;
+    if (cc.hasInbound) gross += allocations.inbound || 0;
+    if (cc.hasOutbound) gross += allocations.outbound || 0;
+    if (cc.hasExpansion) gross += allocations.expansion || 0;
+    if (cc.hasNewProduct) gross += allocations.newProduct || 0;
+    if (cc.hasEmergingInbound) gross += allocations.emergingInbound || 0;
+    if (cc.hasEmergingOutbound) gross += allocations.emergingOutbound || 0;
+    if (cc.hasEmergingNewProduct) gross += allocations.emergingNewProduct || 0;
+    const churn = cc.hasChurn ? (allocations.churn || 0) : 0;
+    return { grossPct: gross, churnPct: churn, hasStartedAllocating: gross > 0 || churn > 0 };
   }, [allocations, cc]);
   const isManualMode = (plan.targetAllocationMode ?? 'historical') === 'manual';
-  const allocValid = !isManualMode || Math.abs(allocTotal - 100) < 0.01;
-  const showAllocWarning = activeTab !== 'setup' && !allocValid;
+  const netAmt = newARR * ((grossPct - churnPct) / 100);
+  const allocValid = !isManualMode || Math.abs(netAmt - newARR) < 1;
+  // Only incomplete if user has started but hasn't finished
+  const allocIncomplete = isManualMode && hasStartedAllocating && !allocValid;
+  const showAllocWarning = activeTab !== 'setup' && allocIncomplete;
 
   const handleTabChange = (tab: TabId) => {
-    // Block navigation if allocation is invalid
-    if (tab !== 'setup' && !allocValid) return;
+    // Always allow navigation — show warnings instead of blocking
     setActiveTab(tab);
   };
 
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
-      <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
+      <TabNav activeTab={activeTab} onTabChange={handleTabChange} setupIncomplete={allocIncomplete} />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
         {showAllocWarning && (
-          <div className="mb-4 border border-red-300 rounded-lg p-3 bg-red-50">
-            <p className="text-sm text-red-800 font-medium">
-              Complete your target allocation in Setup to proceed. Allocations must total 100%.
+          <div className="mb-4 border border-amber-300 rounded-lg p-3 bg-amber-50">
+            <p className="text-sm text-amber-800 font-medium">
+              Your target allocation in Setup is incomplete &mdash; net allocation does not match your ARR gap.
             </p>
           </div>
         )}
