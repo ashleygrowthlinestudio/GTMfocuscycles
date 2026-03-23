@@ -2,9 +2,29 @@
 
 import React, { useState, useMemo } from 'react';
 import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, PlanningMode, Month, MonthlyActuals, StrategicBet, MarketInsight, ChannelConfig } from '@/lib/types';
-import type { PipelineTimingMap } from '@/lib/engine';
-import { getBetRampPct, getInsightsForMonth } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent, formatNumber, formatMonthName } from '@/lib/format';
+
+/** Local type definition (was previously in engine) */
+type PipelineTimingEntry = { status: 'green' | 'amber' | 'red'; tooltip: string };
+type PipelineTimingMap = Record<string, Record<number, PipelineTimingEntry>>;
+
+/** Inline ramp helper (no engine dependency) */
+function getBetRampPct(bet: StrategicBet, month: number): number {
+  const start = bet.startMonth ?? 1;
+  const ramp = bet.rampMonths ?? 3;
+  if (month < start) return 0;
+  if (month >= start + ramp) return 1;
+  return ramp > 0 ? (month - start) / ramp : 1;
+}
+
+/** Inline insights helper — returns insights whose impact range includes the given month */
+function getInsightsForMonth(insights: MarketInsight[], month: number): MarketInsight[] {
+  return insights.filter((ins) => {
+    const start = ins.impactMonth ?? 1;
+    const end = start + (ins.impactDurationMonths ?? 1) - 1;
+    return month >= start && month <= end;
+  });
+}
 
 interface RevenueTableProps {
   monthly: MonthlyResult[];

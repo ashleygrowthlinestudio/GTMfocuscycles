@@ -2,8 +2,21 @@
 
 import React from 'react';
 import type { StrategicBet, Month } from '@/lib/types';
-import { getBetValueForMonth, getBetRampPct } from '@/lib/engine';
 import { formatCurrencyFull, formatPercent } from '@/lib/format';
+
+/** Inline ramp helpers (no engine dependency) */
+function getBetRampPct(bet: StrategicBet, month: number): number {
+  const start = bet.startMonth ?? 1;
+  const ramp = bet.rampMonths ?? 3;
+  if (month < start) return 0;
+  if (month >= start + ramp) return 1;
+  return ramp > 0 ? (month - start) / ramp : 1;
+}
+
+function getBetValueForMonth(bet: StrategicBet, month: number): number {
+  const pct = getBetRampPct(bet, month);
+  return bet.currentValue + (bet.improvedValue - bet.currentValue) * pct;
+}
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

@@ -2,12 +2,32 @@
 
 import React, { useMemo, useState } from 'react';
 import { useGTMPlan } from '@/context/GTMPlanContext';
-import { runTopDownModel, runStatusQuoModel, runModelWithBets, applyChannelConfig } from '@/lib/engine';
-import type { ChannelDollarTargets } from '@/lib/engine';
+import { runTopDownModel, calcHistoricalAverages, runStatusQuoModel, applyBetsToRates } from '@/lib/engine';
+import type { EngineMonthlyResult, EngineQuarterlyResult, ActualMonth } from '@/lib/engine';
 import { formatCurrency, formatCurrencyFull, formatMonthName, formatPercent } from '@/lib/format';
-import type { MonthlyResult, QuarterlyResult, RevenueBreakdown, RampConfig } from '@/lib/types';
+import type { RevenueBreakdown, MonthlyActuals } from '@/lib/types';
 
-const DEFAULT_RAMP: RampConfig = { rampMonths: 1, startMonth: 1 };
+function toActualMonth(a: MonthlyActuals): ActualMonth {
+  return {
+    month: a.month,
+    inboundClosedWon: a.inboundClosedWon,
+    outboundClosedWon: a.outboundClosedWon,
+    expansionRevenue: a.expansionRevenue,
+    newProductClosedWon: a.newProductInboundClosedWon,
+    churnRevenue: a.churnRevenue,
+    totalNewARR: a.totalNewARR,
+    cumulativeARR: a.cumulativeARR,
+    inboundPipelineCreated: a.inboundPipelineCreated,
+    outboundPipelineCreated: a.outboundPipelineCreated,
+    expansionPipelineCreated: 0,
+    newProductPipelineCreated: 0,
+    inboundHIS: a.hisVolume,
+    inboundDeals: 0,
+    outboundDeals: 0,
+    expansionDeals: 0,
+    newProductDeals: 0,
+  };
+}
 
 type ViewMode = 'quarterly' | 'monthly';
 
@@ -34,53 +54,101 @@ export default function ExecutiveSummary() {
   const cm = plan.currentMonth ?? 1;
   const [goalsView, setGoalsView] = useState<ViewMode>('quarterly');
 
-  // Plan model (Revenue Targets) — allocation-driven when available
-  const effectiveTargets = useMemo(
-    () => applyChannelConfig(plan.targets, cc, 'targets'),
-    [plan.targets, cc],
-  );
+  // Target model (same as TopDownPlan.tsx)
+  const targets = plan.targets;
   const alloc = plan.targetAllocations;
-  const expectedAnnualChurn = cc.hasChurn
-    ? plan.startingARR * (plan.targets.churn.monthlyChurnRate || 0) * 12
-    : 0;
-  const execGrossTarget = (plan.targetARR - plan.startingARR) + expectedAnnualChurn;
-  const channelTargets: ChannelDollarTargets = useMemo(() => ({
-    inbound: execGrossTarget * ((alloc?.inbound || 0) / 100),
-    outbound: execGrossTarget * ((alloc?.outbound || 0) / 100),
-    expansion: execGrossTarget * ((alloc?.expansion || 0) / 100),
-    newProduct: execGrossTarget * ((alloc?.newProduct || 0) / 100),
-    emergingInbound: execGrossTarget * ((alloc?.emergingInbound || 0) / 100),
-    emergingOutbound: execGrossTarget * ((alloc?.emergingOutbound || 0) / 100),
-    emergingNewProduct: execGrossTarget * ((alloc?.emergingNewProduct || 0) / 100),
-  }), [execGrossTarget, alloc]);
-  const hasAllocations = useMemo(() => Object.values(channelTargets).some((v) => v > 0), [channelTargets]);
+  const churnAnnual = plan.startingARR * (targets.churn.monthlyChurnRate || 0) * 12;
+  const grossTarget = (plan.targetARR - plan.startingARR) + churnAnnual;
+
+  const inboundAnnual = ((alloc?.inbound || 0) / 100) * grossTarget;
+  const outboundAnnual = ((alloc?.outbound || 0) / 100) * grossTarget;
+  const expansionAnnual = ((alloc?.expansion || 0) / 100) * grossTarget;
+  const newProductAnnual = ((alloc?.newProduct || 0) / 100) * grossTarget;
+
+  const hasAllocations = (inboundAnnual + outboundAnnual + expansionAnnual + newProductAnnual) > 0;
+
   const planModel = useMemo(() => {
     if (!hasAllocations) return null;
-    return runTopDownModel(channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline);
-  }, [hasAllocations, channelTargets, effectiveTargets, plan.seasonality, plan.startingARR, plan.existingPipeline]);
+    return runTopDownModel({
+      inboundAnnual,
+      outboundAnnual,
+      expansionAnnual,
+      newProductAnnual,
+      churnAnnual,
+      rates: {
+        inboundWinRate: targets.newBusiness.inbound.winRate,
+        inboundACV: targets.newBusiness.inbound.acv,
+        inboundSalesCycle: targets.newBusiness.inbound.salesCycleMonths,
+        inboundHisToPipelineRate: targets.newBusiness.inbound.hisToPipelineRate,
+        outboundWinRate: targets.newBusiness.outbound.winRate,
+        outboundACV: targets.newBusiness.outbound.acv,
+        outboundSalesCycle: targets.newBusiness.outbound.salesCycleMonths,
+        expansionWinRate: targets.expansion.winRate,
+        expansionACV: targets.expansion.acv,
+        expansionSalesCycle: targets.expansion.salesCycleMonths,
+        newProductWinRate: targets.newProduct.inbound.winRate,
+        newProductACV: targets.newProduct.inbound.acv,
+        newProductSalesCycle: targets.newProduct.inbound.salesCycleMonths,
+      },
+      startingARR: plan.startingARR,
+    });
+  }, [
+    hasAllocations, inboundAnnual, outboundAnnual, expansionAnnual, newProductAnnual,
+    churnAnnual, targets, plan.startingARR,
+  ]);
 
-  // Status Quo model — runStatusQuoModel
-  const flatSeasonality = useMemo(() => ({
-    monthly: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [i + 1, 1.0])) as Record<number, number>,
-  }), []);
-  const effectiveHistorical = useMemo(
-    () => applyChannelConfig(plan.historical, cc, 'historical'),
-    [plan.historical, cc],
+  // Status Quo model (same as HistoricalBenchmarks.tsx)
+  const historicalQuarters = plan.historicalQuarters ?? [];
+  const avgs = useMemo(
+    () => calcHistoricalAverages(historicalQuarters),
+    [historicalQuarters],
+  );
+  const actuals = useMemo(
+    () => (plan.detailedActuals || []).map(toActualMonth),
+    [plan.detailedActuals],
   );
   const sqModel = useMemo(
-    () => runStatusQuoModel(
-      plan.historicalQuarters ?? [], cc, flatSeasonality, plan.startingARR, plan.existingPipeline,
-      plan.detailedActuals ?? [], plan.currentMonth ?? 1, plan.planningMode,
-    ),
-    [plan.historicalQuarters, cc, flatSeasonality, plan.startingARR, plan.existingPipeline, plan.detailedActuals, plan.currentMonth, plan.planningMode],
+    () => runStatusQuoModel({
+      ...avgs,
+      monthlyChurnRate: avgs.monthlyChurnRate || targets.churn.monthlyChurnRate,
+      startingARR: plan.startingARR,
+      actuals,
+      currentMonth: cm,
+      channelConfig: cc,
+    }),
+    [avgs, plan.startingARR, actuals, cm, cc, targets.churn.monthlyChurnRate],
   );
 
-  // With Bets model — same flat seasonality/no-ramp as SQ to isolate bet impact
+  // With Bets model — SQ with rates modified by applyBetsToRates
   const enabledBets = plan.strategicBets.filter((b) => b.enabled);
-  const withBetsModel = useMemo(
-    () => runModelWithBets(effectiveHistorical, plan.strategicBets, flatSeasonality, DEFAULT_RAMP, plan.startingARR, plan.existingPipeline),
-    [effectiveHistorical, plan.strategicBets, flatSeasonality, plan.startingARR, plan.existingPipeline],
-  );
+  const withBetsModel = useMemo(() => {
+    const modifiedRates = applyBetsToRates(avgs as unknown as Record<string, number>, plan.strategicBets, cm);
+    return runStatusQuoModel({
+      avgMonthlyInboundPipeline: modifiedRates.avgMonthlyInboundPipeline ?? avgs.avgMonthlyInboundPipeline,
+      avgInboundWinRate: modifiedRates.avgInboundWinRate ?? avgs.avgInboundWinRate,
+      avgInboundACV: modifiedRates.avgInboundACV ?? avgs.avgInboundACV,
+      avgInboundSalesCycle: modifiedRates.avgInboundSalesCycle ?? avgs.avgInboundSalesCycle,
+      avgMonthlyHIS: modifiedRates.avgMonthlyHIS ?? avgs.avgMonthlyHIS,
+      avgInboundHisToPipelineRate: modifiedRates.avgInboundHisToPipelineRate ?? avgs.avgInboundHisToPipelineRate,
+      avgMonthlyOutboundPipeline: modifiedRates.avgMonthlyOutboundPipeline ?? avgs.avgMonthlyOutboundPipeline,
+      avgOutboundWinRate: modifiedRates.avgOutboundWinRate ?? avgs.avgOutboundWinRate,
+      avgOutboundACV: modifiedRates.avgOutboundACV ?? avgs.avgOutboundACV,
+      avgOutboundSalesCycle: modifiedRates.avgOutboundSalesCycle ?? avgs.avgOutboundSalesCycle,
+      avgExpansionPipeline: modifiedRates.avgExpansionPipeline ?? avgs.avgExpansionPipeline,
+      avgExpansionWinRate: modifiedRates.avgExpansionWinRate ?? avgs.avgExpansionWinRate,
+      avgExpansionACV: modifiedRates.avgExpansionACV ?? avgs.avgExpansionACV,
+      avgExpansionSalesCycle: modifiedRates.avgExpansionSalesCycle ?? avgs.avgExpansionSalesCycle,
+      avgNewProductPipeline: modifiedRates.avgNewProductPipeline ?? avgs.avgNewProductPipeline,
+      avgNewProductWinRate: modifiedRates.avgNewProductWinRate ?? avgs.avgNewProductWinRate,
+      avgNewProductACV: modifiedRates.avgNewProductACV ?? avgs.avgNewProductACV,
+      avgNewProductSalesCycle: modifiedRates.avgNewProductSalesCycle ?? avgs.avgNewProductSalesCycle,
+      monthlyChurnRate: (modifiedRates.monthlyChurnRate ?? avgs.monthlyChurnRate) || targets.churn.monthlyChurnRate,
+      startingARR: plan.startingARR,
+      actuals,
+      currentMonth: cm,
+      channelConfig: cc,
+    });
+  }, [avgs, plan.strategicBets, cm, plan.startingARR, actuals, cc, targets.churn.monthlyChurnRate]);
 
   // Effective planModel for display (falls back to sqModel when allocations aren't set)
   const effectivePlanModel = planModel ?? sqModel;
@@ -118,7 +186,7 @@ export default function ExecutiveSummary() {
     const pm = effectivePlanModel.monthly;
     const sm = sqModel.monthly;
 
-    const sumM = (arr: MonthlyResult[], fn: (m: MonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
+    const sumM = (arr: EngineMonthlyResult[], fn: (m: EngineMonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
 
     if (cc.hasInbound) {
       const planVal = sumM(pm, (m) => m.inboundPipelineCreated);
@@ -141,8 +209,8 @@ export default function ExecutiveSummary() {
       gaps.push({ label: 'outbound closed-won revenue', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: formatCurrency });
     }
     if (cc.hasNewProduct) {
-      const planVal = sumM(pm, (m) => m.newProductInboundClosedWon);
-      const sqVal = sumM(sm, (m) => m.newProductInboundClosedWon);
+      const planVal = sumM(pm, (m) => m.newProductClosedWon);
+      const sqVal = sumM(sm, (m) => m.newProductClosedWon);
       gaps.push({ label: 'new product revenue', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: formatCurrency });
     }
     if (cc.hasExpansion) {
@@ -151,8 +219,8 @@ export default function ExecutiveSummary() {
       gaps.push({ label: 'expansion revenue', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: formatCurrency });
     }
     if (cc.hasInbound) {
-      const planVal = sumM(pm, (m) => m.hisRequired);
-      const sqVal = sumM(sm, (m) => m.hisRequired);
+      const planVal = sumM(pm, (m) => m.inboundHIS);
+      const sqVal = sumM(sm, (m) => m.inboundHIS);
       gaps.push({ label: 'high-intent submissions volume', current: sqVal, target: planVal, delta: planVal - sqVal, fmt: (v: number) => Math.round(v).toLocaleString() });
     }
 
@@ -286,9 +354,9 @@ export default function ExecutiveSummary() {
             </div>
 
             {goalsView === 'quarterly' ? (
-              <GoalsTableQuarterly quarterly={effectivePlanModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
+              <GoalsTableQuarterly quarterly={effectivePlanModel.quarterly} cc={cc} isInYear={isInYear} cm={cm} targets={targets} />
             ) : (
-              <GoalsTableMonthly monthly={effectivePlanModel.monthly} cc={cc} isInYear={isInYear} cm={cm} targets={effectiveTargets} />
+              <GoalsTableMonthly monthly={effectivePlanModel.monthly} cc={cc} isInYear={isInYear} cm={cm} targets={targets} />
             )}
           </div>
         </section>
@@ -309,7 +377,7 @@ export default function ExecutiveSummary() {
 
           {/* Full Status Quo metric table — quarterly, Plan vs SQ with deltas */}
           <div className="mt-4 overflow-x-auto">
-            <StatusQuoDeltaTable planQ={effectivePlanModel.quarterly} sqQ={sqModel.quarterly} cc={cc} planTargets={effectiveTargets} sqTargets={effectiveHistorical} />
+            <StatusQuoDeltaTable planQ={effectivePlanModel.quarterly} sqQ={sqModel.quarterly} cc={cc} planTargets={targets} sqTargets={plan.historical} />
           </div>
         </section>
 
@@ -348,7 +416,7 @@ export default function ExecutiveSummary() {
                   const diffDisplay = isPct ? `${(Math.abs(diffVal) * 100).toFixed(1)}pp` : fmtVal(Math.abs(diffVal));
 
                   // Downstream impact: compare withBets vs SQ for relevant channel
-                  const sumM = (arr: MonthlyResult[], fn: (m: MonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
+                  const sumM = (arr: EngineMonthlyResult[], fn: (m: EngineMonthlyResult) => number) => arr.reduce((s, m) => s + fn(m), 0);
                   const bm = withBetsModel.monthly;
                   const sm = sqModel.monthly;
                   let closedWonDelta = 0;
@@ -356,14 +424,14 @@ export default function ExecutiveSummary() {
                   let impactDesc = '';
 
                   if ((bet.category === 'newBusiness' || bet.category === 'newProduct') && (bet.channel === 'inbound' || !bet.channel)) {
-                    const cwGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductInboundClosedWon : (m: MonthlyResult) => m.inboundClosedWon;
-                    const dealGetter = bet.category === 'newProduct' ? (m: MonthlyResult) => m.newProductInboundDeals : (m: MonthlyResult) => m.inboundDeals;
+                    const cwGetter = bet.category === 'newProduct' ? (m: EngineMonthlyResult) => m.newProductClosedWon : (m: EngineMonthlyResult) => m.inboundClosedWon;
+                    const dealGetter = bet.category === 'newProduct' ? (m: EngineMonthlyResult) => m.newProductDeals : (m: EngineMonthlyResult) => m.inboundDeals;
                     closedWonDelta += sumM(bm, cwGetter) - sumM(sm, cwGetter);
                     customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
                   }
                   if ((bet.category === 'newBusiness' || bet.category === 'newProduct') && (bet.channel === 'outbound' || !bet.channel)) {
-                    const cwGetter = bet.category === 'newProduct' ? (_m: MonthlyResult) => 0 : (m: MonthlyResult) => m.outboundClosedWon;
-                    const dealGetter = bet.category === 'newProduct' ? (_m: MonthlyResult) => 0 : (m: MonthlyResult) => m.outboundDeals;
+                    const cwGetter = bet.category === 'newProduct' ? (_m: EngineMonthlyResult) => 0 : (m: EngineMonthlyResult) => m.outboundClosedWon;
+                    const dealGetter = bet.category === 'newProduct' ? (_m: EngineMonthlyResult) => 0 : (m: EngineMonthlyResult) => m.outboundDeals;
                     closedWonDelta += sumM(bm, cwGetter) - sumM(sm, cwGetter);
                     customerDelta += sumM(bm, dealGetter) - sumM(sm, dealGetter);
                   }
@@ -443,7 +511,7 @@ export default function ExecutiveSummary() {
           const quarterEndMonths = [3, 6, 9, 12];
 
           if (cc.hasInbound) {
-            const sc = effectiveTargets.newBusiness.inbound.salesCycleMonths;
+            const sc = targets.newBusiness.inbound.salesCycleMonths;
             effectivePlanModel.quarterly.forEach((q, qi) => {
               if (q.inboundClosedWon > 0) {
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
@@ -452,7 +520,7 @@ export default function ExecutiveSummary() {
             });
           }
           if (cc.hasOutbound) {
-            const sc = effectiveTargets.newBusiness.outbound.salesCycleMonths;
+            const sc = targets.newBusiness.outbound.salesCycleMonths;
             effectivePlanModel.quarterly.forEach((q, qi) => {
               if (q.outboundClosedWon > 0) {
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
@@ -461,10 +529,10 @@ export default function ExecutiveSummary() {
             });
           }
           if (cc.hasNewProduct) {
-            const scIb = effectiveTargets.newProduct.inbound.salesCycleMonths;
+            const scIb = targets.newProduct.inbound.salesCycleMonths;
             effectivePlanModel.quarterly.forEach((q, qi) => {
-              const npCW = q.newProductInboundClosedWon;
-              const npPipe = q.newProductInboundPipelineCreated;
+              const npCW = q.newProductClosedWon;
+              const npPipe = q.newProductPipelineCreated;
               if (npCW > 0) {
                 const sc = scIb;
                 const createBy = quarterEndMonths[qi] - Math.round(sc);
@@ -580,8 +648,8 @@ export default function ExecutiveSummary() {
           };
 
           if (cc.hasInbound && hq.length > 0) {
-            const h = effectiveHistorical.newBusiness.inbound;
-            const t = effectiveTargets.newBusiness.inbound;
+            const h = plan.historical.newBusiness.inbound;
+            const t = targets.newBusiness.inbound;
             const histWR = avg(hq.map((q) => q.inboundWinRate));
             const histACV = avg(hq.map((q) => q.inboundACV));
             const histHTP = avg(hq.map((q) => q.inboundHISToPipelineRate));
@@ -598,7 +666,7 @@ export default function ExecutiveSummary() {
           }
 
           if (cc.hasOutbound && hq.length > 0) {
-            const t = effectiveTargets.newBusiness.outbound;
+            const t = targets.newBusiness.outbound;
             const histWR = avg(hq.map((q) => q.outboundWinRate));
             const histACV = avg(hq.map((q) => q.outboundACV));
             const histSC = avg(hq.map((q) => q.outboundSalesCycle));
@@ -613,7 +681,7 @@ export default function ExecutiveSummary() {
           }
 
           if (cc.hasNewProduct && hq.length > 0) {
-            const t = effectiveTargets.newProduct.inbound;
+            const t = targets.newProduct.inbound;
             const histWR = avg(hq.map((q) => q.newProductWinRate));
             const histACV = avg(hq.map((q) => q.newProductACV));
             const histSC = avg(hq.map((q) => q.newProductSalesCycle));
@@ -632,13 +700,13 @@ export default function ExecutiveSummary() {
           // Expansion row
           if (hq.length > 0) {
             const histExp = avg(hq.map((q) => q.expansionWinRate));
-            const planExp = effectiveTargets.expansion.winRate;
+            const planExp = targets.expansion.winRate;
             if (histExp > 0 || planExp > 0) {
               tables.push({
                 name: 'Expansion & Churn',
                 rows: [
                   { metric: 'Expansion Win Rate', histVal: histExp, planVal: planExp, isPct: true, higherIsBetter: true },
-                  { metric: 'Churn Rate', histVal: avg(hq.map((q) => q.churnRate)), planVal: effectiveTargets.churn.monthlyChurnRate, isPct: true, higherIsBetter: false },
+                  { metric: 'Churn Rate', histVal: avg(hq.map((q) => q.churnRate)), planVal: targets.churn.monthlyChurnRate, isPct: true, higherIsBetter: false },
                 ],
               });
             }
@@ -717,7 +785,7 @@ function pipelineDeadlineMonth(closeQuarterIdx: number, salesCycle: number): str
 }
 
 function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
-  quarterly: QuarterlyResult[];
+  quarterly: EngineQuarterlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
   isInYear: boolean;
   cm: number;
@@ -725,7 +793,7 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
 }) {
   const quarterMonths: Record<string, number[]> = { Q1: [1, 2, 3], Q2: [4, 5, 6], Q3: [7, 8, 9], Q4: [10, 11, 12] };
 
-  function badges(q: QuarterlyResult) {
+  function badges(q: EngineQuarterlyResult) {
     if (!isInYear) return null;
     const months = quarterMonths[q.quarter] || [];
     const actualCount = months.filter((m) => m < cm).length;
@@ -736,11 +804,11 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
 
   const rows: GoalsRow[] = [];
 
-  const addCurrency = (label: string, getter: (q: QuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
+  const addCurrency = (label: string, getter: (q: EngineQuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
     const values = quarterly.map(getter);
     rows.push({ label, values: values.map(formatCurrencyFull), total: formatCurrencyFull(values.reduce((s, v) => s + v, 0)), ...opts });
   };
-  const addNumber = (label: string, getter: (q: QuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
+  const addNumber = (label: string, getter: (q: EngineQuarterlyResult) => number, opts?: Partial<GoalsRow>) => {
     const values = quarterly.map(getter);
     rows.push({ label, values: values.map((v) => Math.round(v).toLocaleString()), total: Math.round(values.reduce((s, v) => s + v, 0)).toLocaleString(), ...opts });
   };
@@ -758,12 +826,12 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
     // Pipeline deadline note per quarter
     const deadlineNote = quarterly.map((_, qi) => `Create by ${pipelineDeadlineMonth(qi, ib.salesCycleMonths)}`).join(' | ');
     rows[rows.length - 1].label = `IB Qualified Pipeline $`;
-    addNumber('IB HIS Volume', (q) => q.hisRequired);
+    addNumber('IB HIS Volume', (q) => q.inboundHIS);
     addConstant('IB Win Rate', formatPercent(ib.winRate));
     addConstant('IB ACV', formatCurrencyFull(ib.acv));
     addConstant('IB Sales Cycle', `${ib.salesCycleMonths} mo`);
     addCurrency('Inbound Closed Won', (q) => q.inboundClosedWon, { isClosedWon: true });
-    addNumber('IB New Customers', (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0));
+    addNumber('IB New Customers', (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.inboundDeals, 0));
   }
 
   // Outbound channel
@@ -774,13 +842,13 @@ function GoalsTableQuarterly({ quarterly, cc, isInYear, cm, targets }: {
     addConstant('OB ACV', formatCurrencyFull(ob.acv));
     addConstant('OB Sales Cycle', `${ob.salesCycleMonths} mo`);
     addCurrency('Outbound Closed Won', (q) => q.outboundClosedWon, { isClosedWon: true });
-    addNumber('OB New Customers', (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0));
+    addNumber('OB New Customers', (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.outboundDeals, 0));
   }
 
   // New Product
   if (cc.hasNewProduct) {
-    addCurrency('New Product Won', (q) => q.newProductInboundClosedWon, { isClosedWon: true });
-    addNumber('NP New Customers', (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0));
+    addCurrency('New Product Won', (q) => q.newProductClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.newProductDeals, 0));
   }
 
   // Expansion
@@ -847,7 +915,7 @@ type MonthlyGoalsRow = {
 };
 
 function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
-  monthly: MonthlyResult[];
+  monthly: EngineMonthlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
   isInYear: boolean;
   cm: number;
@@ -855,10 +923,10 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
 }) {
   const rows: MonthlyGoalsRow[] = [];
 
-  const addCurrency = (label: string, getter: (m: MonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
+  const addCurrency = (label: string, getter: (m: EngineMonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
     rows.push({ label, values: monthly.map((m) => formatCurrencyFull(getter(m))), ...opts });
   };
-  const addNumber = (label: string, getter: (m: MonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
+  const addNumber = (label: string, getter: (m: EngineMonthlyResult) => number, opts?: Partial<MonthlyGoalsRow>) => {
     rows.push({ label, values: monthly.map((m) => Math.round(getter(m)).toLocaleString()), ...opts });
   };
   const addConstant = (label: string, value: string, opts?: Partial<MonthlyGoalsRow>) => {
@@ -870,7 +938,7 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
   if (cc.hasInbound) {
     const ib = targets.newBusiness.inbound;
     addCurrency('IB Qualified Pipeline $', (m) => m.inboundPipelineCreated);
-    addNumber('IB HIS Volume', (m) => m.hisRequired);
+    addNumber('IB HIS Volume', (m) => m.inboundHIS);
     addConstant('IB Win Rate', formatPercent(ib.winRate));
     addConstant('IB ACV', formatCurrencyFull(ib.acv));
     addConstant('IB Sales Cycle', `${ib.salesCycleMonths} mo`);
@@ -889,8 +957,8 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
   }
 
   if (cc.hasNewProduct) {
-    addCurrency('New Product Won', (m) => m.newProductInboundClosedWon, { isClosedWon: true });
-    addNumber('NP New Customers', (m) => m.newProductInboundDeals);
+    addCurrency('New Product Won', (m) => m.newProductClosedWon, { isClosedWon: true });
+    addNumber('NP New Customers', (m) => m.newProductDeals);
   }
 
   if (cc.hasExpansion) {
@@ -947,16 +1015,16 @@ function GoalsTableMonthly({ monthly, cc, isInYear, cm, targets }: {
 // ── Status Quo Delta Table (full metric set, quarterly) ──────
 
 function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
-  planQ: QuarterlyResult[];
-  sqQ: QuarterlyResult[];
+  planQ: EngineQuarterlyResult[];
+  sqQ: EngineQuarterlyResult[];
   cc: { hasInbound: boolean; hasOutbound: boolean; hasExpansion: boolean; hasChurn: boolean; hasNewProduct: boolean };
   planTargets: RevenueBreakdown;
   sqTargets: RevenueBreakdown;
 }) {
   type DeltaRow = {
     label: string;
-    getPlan: (q: QuarterlyResult) => number;
-    getSq: (q: QuarterlyResult) => number;
+    getPlan: (q: EngineQuarterlyResult) => number;
+    getSq: (q: EngineQuarterlyResult) => number;
     fmt: (v: number) => string;
     isSecondary?: boolean;
     isClosedWon?: boolean;
@@ -976,12 +1044,12 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
     const pIb = planTargets.newBusiness.inbound;
     const sIb = sqTargets.newBusiness.inbound;
     metrics.push({ label: 'IB Qualified Pipeline $', getPlan: (q) => q.inboundPipelineCreated, getSq: (q) => q.inboundPipelineCreated, fmt: formatCurrencyFull });
-    metrics.push({ label: 'IB HIS Volume', getPlan: (q) => q.hisRequired, getSq: (q) => q.hisRequired, fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'IB HIS Volume', getPlan: (q) => q.inboundHIS, getSq: (q) => q.inboundHIS, fmt: (v) => Math.round(v).toLocaleString() });
     metrics.push({ label: 'IB Win Rate', getPlan: () => 0, getSq: () => 0, fmt: formatPercent, isSecondary: true, planConst: formatPercent(pIb.winRate), sqConst: formatPercent(sIb.winRate) });
     metrics.push({ label: 'IB ACV', getPlan: () => 0, getSq: () => 0, fmt: formatCurrencyFull, isSecondary: true, planConst: formatCurrencyFull(pIb.acv), sqConst: formatCurrencyFull(sIb.acv) });
     metrics.push({ label: 'IB Sales Cycle', getPlan: () => 0, getSq: () => 0, fmt: (v) => `${v} mo`, isSecondary: true, planConst: `${pIb.salesCycleMonths} mo`, sqConst: `${sIb.salesCycleMonths} mo` });
     metrics.push({ label: 'Inbound Closed Won', getPlan: (q) => q.inboundClosedWon, getSq: (q) => q.inboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-    metrics.push({ label: 'IB New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.inboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'IB New Customers', getPlan: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.inboundDeals, 0), getSq: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.inboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
   }
 
   // Outbound
@@ -993,13 +1061,13 @@ function StatusQuoDeltaTable({ planQ, sqQ, cc, planTargets, sqTargets }: {
     metrics.push({ label: 'OB ACV', getPlan: () => 0, getSq: () => 0, fmt: formatCurrencyFull, isSecondary: true, planConst: formatCurrencyFull(pOb.acv), sqConst: formatCurrencyFull(sOb.acv) });
     metrics.push({ label: 'OB Sales Cycle', getPlan: () => 0, getSq: () => 0, fmt: (v) => `${v} mo`, isSecondary: true, planConst: `${pOb.salesCycleMonths} mo`, sqConst: `${sOb.salesCycleMonths} mo` });
     metrics.push({ label: 'Outbound Closed Won', getPlan: (q) => q.outboundClosedWon, getSq: (q) => q.outboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-    metrics.push({ label: 'OB New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.outboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'OB New Customers', getPlan: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.outboundDeals, 0), getSq: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.outboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
   }
 
   // New Product
   if (cc.hasNewProduct) {
-    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductInboundClosedWon, getSq: (q) => q.newProductInboundClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
-    metrics.push({ label: 'NP New Customers', getPlan: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), getSq: (q) => q.months.reduce((s, m) => s + m.newProductInboundDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
+    metrics.push({ label: 'New Product Won', getPlan: (q) => q.newProductClosedWon, getSq: (q) => q.newProductClosedWon, fmt: formatCurrencyFull, isClosedWon: true });
+    metrics.push({ label: 'NP New Customers', getPlan: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.newProductDeals, 0), getSq: (q) => q.months.reduce((s: number, m: EngineMonthlyResult) => s + m.newProductDeals, 0), fmt: (v) => Math.round(v).toLocaleString() });
   }
 
   // Expansion
